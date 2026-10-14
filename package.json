@@ -1,0 +1,29 @@
+{
+  "name": "agroportal-sparql-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "agroportal-sparql-mcp": "dist/src/mcp/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/mcp/server.js",
+    "dev": "tsx src/mcp/server.ts",
+    "schema:gen": "tsx scripts/gen-schema-card.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,7 +1,7 @@
 # AgroPortal SPARQL schema card
 
-315 ontologies, 1825 submissions
-(331 not archived).
+316 ontologies, 1853 submissions
+(333 not archived).
 
 ## Graph layout
 
@@ -14,22 +14,24 @@ identifiers in `<http://www.w3.org/ns/adms#Identifier>`.
 
 | graph | holds | subjects |
 |---|---|---|
-| `meta:Ontology` | One record per ontology — the catalogue entry. Identity only; descriptive metadata lives on the submission. | 315 |
-| `meta:OntologySubmission` | One record per version. Almost all descriptive metadata is here. Reach the ontology with meta:ontology. | 2,929 |
-| `meta:Metrics` | Size statistics per submission, reached via meta:metrics. Prefer these over the omv:numberOf* fields, which many current submissions omit. | 1,862 |
-| `foaf:Agent` | People and organizations. omv:hasCreator, dcterms:publisher and schema:copyrightHolder point here. foaf:agentType is 'person' or 'organization'. | 1,317 |
+| `meta:Ontology` | One record per ontology — the catalogue entry. Identity only; descriptive metadata lives on the submission. | 316 |
+| `meta:OntologySubmission` | One record per version. Almost all descriptive metadata is here. Reach the ontology with meta:ontology. | 2,957 |
+| `meta:Metrics` | Size statistics per submission, reached via meta:metrics. Prefer these over the omv:numberOf* fields, which many current submissions omit. | 1,888 |
+| `foaf:Agent` | People and organizations. omv:hasCreator, dcterms:publisher and schema:copyrightHolder point here. foaf:agentType is 'person' or 'organization'. | 1,323 |
 | `adms:Identifier` | ORCID and ROR identifiers, reached from an agent via adms:identifier. The value sits on skos:notation. | 852 |
 | `meta:Project` | Projects registered on the portal. meta:ontologyUsed links a project to the ontologies it uses. | 92 |
 | `meta:Contact` | Submission contact names and emails, reached via meta:contact. | 542 |
 | `meta:Review` | User reviews with per-axis ratings, linked by meta:ontologyReviewed. | 3 |
-| `meta:MappingProcess` | Term-to-term mappings between ontologies. Large — constrain by meta:source or a specific term before querying. | 426,027 |
+| `meta:MappingProcess` | How a batch of mappings was made: source ontology (meta:source), relation, creator, date. Holds no terms; the term pairs are in RestBackupMapping. Large — constrain by meta:source before querying. | 426,027 |
+| `meta:RestBackupMapping` | The mappings stored on the portal, one record per term pair: two meta:class_urns, each "urn:ACRONYM:termIRI" (or "ext:..." for a vocabulary outside the portal), and meta:process to its MappingProcess. class_urns are not strings: wrap them in STR() before STRSTARTS. Large — filter on one ontology's urn prefix. | 424,234 |
+| `meta:MappingCount` | Mapping totals per ontology pair: two meta:ontologies acronyms as plain strings, and meta:count. Use it for "how many mappings between X and Y" instead of counting RestBackupMapping. Counts linger for deleted ontologies: join meta:Ontology on omv:acronym to keep live ones. | 19,985 |
 | `meta:Category` | Subject categories. An ontology links to these with omv:hasDomain. | 43 |
 | `meta:Group` | Ontology groups, linked with meta:group. | 12 |
 
     CONTENT (large, plain SKOS/OWL — one graph per submission)
   http://data.bioontology.org/ontologies/AGROVOC/submissions/61  (11,591,385)
   http://data.bioontology.org/ontologies/NCBITAXON/submissions/26  (9,649,015)
-  http://data.bioontology.org/ontologies/PR/submissions/10  (5,454,437)
+  http://data.bioontology.org/ontologies/PR/submissions/11  (5,454,444)
   http://data.bioontology.org/ontologies/GACS/submissions/2  (3,339,408)
   http://data.bioontology.org/ontologies/EPPO/submissions/1  (2,363,483)
   http://data.bioontology.org/ontologies/KASSU/submissions/1  (2,212,668)
@@ -38,7 +40,7 @@ identifiers in `<http://www.w3.org/ns/adms#Identifier>`.
   http://data.bioontology.org/ontologies/NALT/submissions/12  (1,416,303)
   http://data.bioontology.org/ontologies/E-PHY/submissions/2  (998,093)
   http://data.bioontology.org/ontologies/FOODEX2/submissions/2  (997,752)
-  http://data.bioontology.org/ontologies/OBA/submissions/12  (876,924)
+  http://data.bioontology.org/ontologies/OBA/submissions/13  (908,083)
 
 A content graph IRI is `.../ontologies/{ACRONYM}/submissions/{ID}`, and is the
 same IRI as the submission record. To query an ontology's concepts you must
@@ -47,7 +49,7 @@ first resolve which submission is current.
 ## Idioms that are easy to get wrong
 
 **Current submission** — this is the trap that bites hardest. Excluding
-ARCHIVED is necessary but not sufficient: 8 ontologies carry more
+ARCHIVED is necessary but not sufficient: 9 ontologies carry more
 than one non-archived submission, so the filter alone double-counts. Pair it
 with a "no newer live sibling" check to get exactly one row per ontology:
 
@@ -58,7 +60,7 @@ with a "no newer live sibling" check to get exactly one row per ontology:
       FILTER (?id2 > ?id)
     }
 
-Do not reach for MAX(submissionId) instead: ids are not contiguous (AGROVOC has 58 submissions but a latest id of 61),
+Do not reach for MAX(submissionId) instead: ids are not contiguous (AGROVOC has 59 submissions but a latest id of 62),
 so it reads as if it were picking an arbitrary version.
 
 **Ontology size** — use the Metrics graph, not the `omv:numberOf*` fields on
@@ -86,17 +88,17 @@ One record per ontology — the catalogue entry. Identity only; descriptive meta
 
 | predicate | uses |
 |---|---|
-| `omv:hasDomain` | 877 |
-| `meta:administeredBy` | 475 |
+| `omv:hasDomain` | 881 |
+| `meta:administeredBy` | 476 |
 | `meta:group` | 453 |
-| `omv:name` | 315 |
-| `omv:acronym` | 315 |
-| `rdf:type` | 315 |
-| `meta:viewingRestriction` | 315 |
-| `meta:ontologyType` | 315 |
-| `meta:summaryOnly` | 297 |
+| `omv:name` | 316 |
+| `omv:acronym` | 316 |
+| `rdf:type` | 316 |
+| `meta:viewingRestriction` | 316 |
+| `meta:ontologyType` | 316 |
+| `meta:summaryOnly` | 298 |
 | `meta:viewOf` | 52 |
-| `meta:acl` | 50 |
+| `meta:acl` | 51 |
 | `mod:sampleQueries` | 10 |
 
 ### OntologySubmission — `<http://data.bioontology.org/metadata/OntologySubmission>`
@@ -105,52 +107,52 @@ One record per version. Almost all descriptive metadata is here. Reach the ontol
 
 | predicate | uses |
 |---|---|
-| `schema:includedInDataCatalog` | 5980 |
-| `meta:submissionStatus` | 4601 |
-| `omv:naturalLanguage` | 3785 |
-| `omv:hasContributor` | 3705 |
-| `omv:useImports` | 2495 |
-| `meta:contact` | 2438 |
-| `omv:hasCreator` | 2117 |
-| `nkos:ontologyRelatedTo` | 2031 |
-| `voaf:metadataVoc` | 1992 |
-| `meta:submissionId` | 1825 |
-| `meta:released` | 1825 |
-| `omv:status` | 1824 |
-| `nkos:isAlignedTo` | 1823 |
-| `rdf:type` | 1823 |
-| `omv:hasOntologyLanguage` | 1823 |
-| `omv:creationDate` | 1822 |
-| `omv:description` | 1821 |
-| `meta:ontology` | 1821 |
-| `meta:uploadFilePath` | 1820 |
-| `void:dataDump` | 1770 |
-| `void:openSearchDescription` | 1766 |
-| `owl:deprecated` | 1744 |
-| `omv:isOfType` | 1742 |
-| `meta:csvDump` | 1734 |
-| `void:uriLookupEndpoint` | 1733 |
-| `omv:URI` | 1703 |
-| `omv:version` | 1685 |
-| `omv:hasDomain` | 1651 |
-| `sd:endpoint` | 1643 |
-| `meta:metrics` | 1611 |
-| `dcterms:source` | 1591 |
-| `idot:exampleIdentifier` | 1565 |
-| `meta:prefLabelProperty` | 1561 |
-| `meta:definitionProperty` | 1556 |
-| `meta:authorProperty` | 1556 |
-| `meta:synonymProperty` | 1556 |
-| `omv:hasFormalityLevel` | 1534 |
-| `omv:hasLicense` | 1471 |
-| `vann:preferredNamespacePrefix` | 1436 |
-| `meta:pullLocation` | 1404 |
-| `omv:hasOntologySyntax` | 1395 |
-| `foaf:homepage` | 1380 |
-| `omv:documentation` | 1365 |
-| `meta:diffFilePath` | 1269 |
-| `omv:notes` | 1258 |
-| `omv:hasPriorVersion` | 1181 |
+| `schema:includedInDataCatalog` | 6095 |
+| `meta:submissionStatus` | 4639 |
+| `omv:naturalLanguage` | 3864 |
+| `omv:hasContributor` | 3840 |
+| `omv:useImports` | 2599 |
+| `meta:contact` | 2481 |
+| `omv:hasCreator` | 2159 |
+| `nkos:ontologyRelatedTo` | 2128 |
+| `voaf:metadataVoc` | 2076 |
+| `nkos:isAlignedTo` | 1858 |
+| `meta:submissionId` | 1853 |
+| `meta:released` | 1853 |
+| `omv:status` | 1852 |
+| `rdf:type` | 1851 |
+| `omv:hasOntologyLanguage` | 1851 |
+| `omv:creationDate` | 1850 |
+| `omv:description` | 1849 |
+| `meta:ontology` | 1849 |
+| `meta:uploadFilePath` | 1848 |
+| `void:dataDump` | 1798 |
+| `void:openSearchDescription` | 1794 |
+| `owl:deprecated` | 1772 |
+| `omv:isOfType` | 1769 |
+| `meta:csvDump` | 1762 |
+| `void:uriLookupEndpoint` | 1761 |
+| `omv:URI` | 1731 |
+| `omv:version` | 1712 |
+| `sd:endpoint` | 1673 |
+| `omv:hasDomain` | 1659 |
+| `dcterms:source` | 1649 |
+| `meta:metrics` | 1637 |
+| `idot:exampleIdentifier` | 1592 |
+| `meta:prefLabelProperty` | 1589 |
+| `meta:definitionProperty` | 1584 |
+| `meta:authorProperty` | 1584 |
+| `meta:synonymProperty` | 1584 |
+| `omv:hasFormalityLevel` | 1557 |
+| `omv:hasLicense` | 1497 |
+| `vann:preferredNamespacePrefix` | 1464 |
+| `meta:pullLocation` | 1427 |
+| `omv:hasOntologySyntax` | 1415 |
+| `foaf:homepage` | 1392 |
+| `omv:documentation` | 1379 |
+| `meta:diffFilePath` | 1296 |
+| `omv:notes` | 1292 |
+| `omv:hasPriorVersion` | 1194 |
 | `omv:numberOfClasses` | 1120 |
 | `omv:numberOfProperties` | 1119 |
 | `omv:numberOfIndividuals` | 1118 |
@@ -160,69 +162,69 @@ One record per version. Almost all descriptive metadata is here. Reach the ontol
 | `meta:averageChildCount` | 1095 |
 | `meta:classesWithOneChild` | 1094 |
 | `meta:maxChildCount` | 1094 |
-| `dcterms:publisher` | 1064 |
-| `dcterms:identifier` | 1049 |
-| `omv:endorsedBy` | 965 |
-| `omv:usedOntologyEngineeringTool` | 963 |
-| `vann:preferredNamespaceUri` | 947 |
-| `doap:repository` | 852 |
-| `omv:modificationDate` | 842 |
-| `owl:versionIRI` | 833 |
-| `doap:bugDatabase` | 825 |
-| `omv:keywords` | 797 |
-| `meta:publication` | 788 |
-| `meta:obsoleteProperty` | 772 |
-| `meta:modifiedProperty` | 771 |
-| `meta:createdProperty` | 771 |
+| `dcterms:publisher` | 1085 |
+| `dcterms:identifier` | 1053 |
+| `omv:usedOntologyEngineeringTool` | 980 |
+| `vann:preferredNamespaceUri` | 974 |
+| `omv:endorsedBy` | 973 |
+| `doap:repository` | 869 |
+| `omv:modificationDate` | 860 |
+| `owl:versionIRI` | 851 |
+| `doap:bugDatabase` | 842 |
+| `omv:keywords` | 802 |
+| `meta:obsoleteProperty` | 800 |
+| `meta:modifiedProperty` | 799 |
+| `meta:createdProperty` | 799 |
+| `meta:publication` | 795 |
+| `meta:hierarchyProperty` | 766 |
+| `omv:knownUsage` | 752 |
 | `meta:homepage` | 749 |
-| `meta:hierarchyProperty` | 741 |
-| `omv:knownUsage` | 736 |
-| `meta:obsoleteParent` | 678 |
-| `foaf:fundedBy` | 587 |
-| `dcterms:abstract` | 583 |
-| `void:uriRegexPattern` | 579 |
+| `meta:obsoleteParent` | 688 |
+| `void:uriRegexPattern` | 606 |
+| `dcterms:abstract` | 595 |
+| `foaf:fundedBy` | 593 |
 | `foaf:logo` | 547 |
-| `cc:morePermissions` | 483 |
-| `nkos:comesFromTheSameDomain` | 462 |
-| `doap:mailingList` | 370 |
-| `dcterms:alternative` | 366 |
-| `foaf:depiction` | 357 |
-| `pav:curatedBy` | 339 |
-| `dcterms:isFormatOf` | 303 |
-| `meta:missingImports` | 293 |
-| `omv:designedForOntologyTask` | 280 |
-| `omv:keyClasses` | 276 |
-| `schema:copyrightHolder` | 266 |
-| `cc:useGuidelines` | 249 |
+| `cc:morePermissions` | 485 |
+| `nkos:comesFromTheSameDomain` | 466 |
+| `doap:mailingList` | 373 |
+| `dcterms:alternative` | 368 |
+| `foaf:depiction` | 361 |
+| `pav:curatedBy` | 342 |
+| `meta:missingImports` | 306 |
+| `dcterms:isFormatOf` | 305 |
+| `omv:designedForOntologyTask` | 282 |
+| `omv:keyClasses` | 277 |
+| `schema:copyrightHolder` | 267 |
+| `cc:useGuidelines` | 250 |
 | `meta:downloadCsv` | 239 |
-| `dcterms:hasPart` | 225 |
-| `omv:usedOntologyEngineeringMethodology` | 225 |
-| `voaf:usedBy` | 199 |
-| `prov:wasGeneratedBy` | 165 |
-| `dcterms:accrualMethod` | 156 |
-| `dcterms:accrualPeriodicity` | 155 |
-| `dcterms:coverage` | 153 |
-| `dcterms:audience` | 119 |
-| `dcterms:accrualPolicy` | 114 |
+| `dcterms:hasPart` | 228 |
+| `omv:usedOntologyEngineeringMethodology` | 227 |
+| `prov:wasGeneratedBy` | 209 |
+| `voaf:usedBy` | 207 |
+| `dcterms:accrualMethod` | 157 |
+| `dcterms:accrualPeriodicity` | 156 |
+| `dcterms:coverage` | 154 |
+| `dcterms:audience` | 122 |
+| `dcterms:accrualPolicy` | 115 |
 | `vann:example` | 107 |
 | `dcterms:hasFormat` | 104 |
-| `omv:isBackwardCompatibleWith` | 93 |
-| `nkos:explanationEvolution` | 92 |
-| `voaf:toDoList` | 78 |
-| `meta:masterFileName` | 71 |
+| `omv:isBackwardCompatibleWith` | 101 |
+| `nkos:explanationEvolution` | 97 |
+| `voaf:toDoList` | 80 |
+| `meta:masterFileName` | 72 |
 | `dcterms:valid` | 63 |
 | `schema:translator` | 62 |
-| `omv:conformsToKnowledgeRepresentationParadigm` | 59 |
+| `omv:conformsToKnowledgeRepresentationParadigm` | 60 |
 | `mod:competencyQuestion` | 50 |
 | `omv:numberOfAxioms` | 46 |
 | `<http://www.isibang.ac.in/ns/mod#competencyQuestion>` | 34 |
 | `pav:curatedOn` | 33 |
+| `nkos:similarTo` | 31 |
+| `skos:hiddenLabel` | 30 |
 | `voaf:generalizes` | 30 |
-| `skos:hiddenLabel` | 29 |
 | `schema:award` | 29 |
-| `nkos:similarTo` | 27 |
-| `schema:associatedMedia` | 27 |
-| `schema:workTranslation` | 8 |
+| `schema:associatedMedia` | 28 |
+| `schema:workTranslation` | 9 |
 | `void:entities` | 8 |
 | `nkos:hasDisparateModelling` | 7 |
 
@@ -232,17 +234,17 @@ Size statistics per submission, reached via meta:metrics. Prefer these over the 
 
 | predicate | uses |
 |---|---|
-| `meta:maxDepth` | 1861 |
-| `meta:averageChildCount` | 1860 |
-| `meta:classesWithNoDefinition` | 1859 |
-| `meta:classesWithMoreThan25Children` | 1859 |
-| `meta:properties` | 1859 |
-| `meta:classes` | 1859 |
-| `rdf:type` | 1859 |
-| `meta:classesWithOneChild` | 1859 |
-| `meta:individuals` | 1859 |
-| `meta:created` | 1859 |
-| `meta:maxChildCount` | 1859 |
+| `meta:maxDepth` | 1887 |
+| `meta:averageChildCount` | 1886 |
+| `meta:classesWithNoDefinition` | 1885 |
+| `meta:classesWithMoreThan25Children` | 1885 |
+| `meta:properties` | 1885 |
+| `meta:classes` | 1885 |
+| `rdf:type` | 1885 |
+| `meta:classesWithOneChild` | 1885 |
+| `meta:individuals` | 1885 |
+| `meta:created` | 1885 |
+| `meta:maxChildCount` | 1885 |
 
 ### foaf:Agent — `<http://xmlns.com/foaf/0.1/Agent>`
 
@@ -250,13 +252,13 @@ People and organizations. omv:hasCreator, dcterms:publisher and schema:copyright
 
 | predicate | uses |
 |---|---|
-| `foaf:name` | 1322 |
-| `foaf:agentType` | 1244 |
-| `foaf:creator` | 1244 |
-| `rdf:type` | 1244 |
-| `dcterms:created` | 1090 |
+| `foaf:name` | 1328 |
+| `foaf:agentType` | 1250 |
+| `foaf:creator` | 1250 |
+| `rdf:type` | 1250 |
+| `dcterms:created` | 1096 |
 | `adms:identifier` | 796 |
-| `org:memberOf` | 519 |
+| `org:memberOf` | 520 |
 | `foaf:homepage` | 338 |
 | `skos:altLabel` | 292 |
 | `foaf:mbox` | 177 |
@@ -321,7 +323,7 @@ User reviews with per-axis ratings, linked by meta:ontologyReviewed.
 
 ### MappingProcess — `<http://data.bioontology.org/metadata/MappingProcess>`
 
-Term-to-term mappings between ontologies. Large — constrain by meta:source or a specific term before querying.
+How a batch of mappings was made: source ontology (meta:source), relation, creator, date. Holds no terms; the term pairs are in RestBackupMapping. Large — constrain by meta:source before querying.
 
 | predicate | uses |
 |---|---|
@@ -336,6 +338,28 @@ Term-to-term mappings between ontologies. Large — constrain by meta:source or 
 | `meta:object_source_id` | 3 |
 | `meta:source_contact_info` | 3 |
 | `meta:subject_source_id` | 3 |
+
+### RestBackupMapping — `<http://data.bioontology.org/metadata/RestBackupMapping>`
+
+The mappings stored on the portal, one record per term pair: two meta:class_urns, each "urn:ACRONYM:termIRI" (or "ext:..." for a vocabulary outside the portal), and meta:process to its MappingProcess. class_urns are not strings: wrap them in STR() before STRSTARTS. Large — filter on one ontology's urn prefix.
+
+| predicate | uses |
+|---|---|
+| `meta:class_urns` | 848468 |
+| `rdf:type` | 424234 |
+| `meta:uuid` | 424234 |
+| `meta:process` | 424232 |
+
+### MappingCount — `<http://data.bioontology.org/metadata/MappingCount>`
+
+Mapping totals per ontology pair: two meta:ontologies acronyms as plain strings, and meta:count. Use it for "how many mappings between X and Y" instead of counting RestBackupMapping. Counts linger for deleted ontologies: join meta:Ontology on omv:acronym to keep live ones.
+
+| predicate | uses |
+|---|---|
+| `meta:ontologies` | 39683 |
+| `meta:count` | 19985 |
+| `rdf:type` | 19985 |
+| `meta:pair_count` | 19984 |
 
 ### Category — `<http://data.bioontology.org/metadata/Category>`
 

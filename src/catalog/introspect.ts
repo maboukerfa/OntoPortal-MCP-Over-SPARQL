@@ -93,7 +93,17 @@ const PROFILED: GraphSpec[] = [
   {
     iri: GRAPHS.mappingProcess,
     label: "MappingProcess",
-    note: "Term-to-term mappings between ontologies. Large — constrain by meta:source or a specific term before querying.",
+    note: "How a batch of mappings was made: source ontology (meta:source), relation, creator, date. Holds no terms; the term pairs are in RestBackupMapping. Large — constrain by meta:source before querying.",
+  },
+  {
+    iri: GRAPHS.restBackupMapping,
+    label: "RestBackupMapping",
+    note: "The mappings stored on the portal, one record per term pair: two meta:class_urns, each \"urn:ACRONYM:termIRI\" (or \"ext:...\" for a vocabulary outside the portal), and meta:process to its MappingProcess. class_urns are not strings: wrap them in STR() before STRSTARTS. Large — filter on one ontology's urn prefix.",
+  },
+  {
+    iri: GRAPHS.mappingCount,
+    label: "MappingCount",
+    note: "Mapping totals per ontology pair: two meta:ontologies acronyms as plain strings, and meta:count. Use it for \"how many mappings between X and Y\" instead of counting RestBackupMapping. Counts linger for deleted ontologies: join meta:Ontology on omv:acronym to keep live ones.",
   },
   {
     iri: GRAPHS.category,
@@ -243,7 +253,7 @@ async function findIdGap(endpoint: SparqlEndpoint): Promise<IdGapFact | null> {
 export async function buildSchemaCard(
   endpoint: SparqlEndpoint,
 ): Promise<SchemaCard> {
-  // Sequential on purpose: firing eleven graph profiles at once is a burst this
+  // Sequential on purpose: firing thirteen graph profiles at once is a burst this
   // shared endpoint does not deserve, and the whole run still finishes well
   // inside a minute.
   const graphs: GraphProfile[] = [];

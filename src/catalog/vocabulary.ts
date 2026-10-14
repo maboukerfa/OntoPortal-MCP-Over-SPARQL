@@ -27,6 +27,7 @@ export const GRAPHS = {
   project: `${METADATA_NS}/Project`,
   review: `${METADATA_NS}/Review`,
   mappingProcess: `${METADATA_NS}/MappingProcess`,
+  restBackupMapping: `${METADATA_NS}/RestBackupMapping`,
   mappingCount: `${METADATA_NS}/MappingCount`,
   externalMappings: `${METADATA_NS}/ExternalMappings`,
 

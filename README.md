@@ -128,7 +128,7 @@ Each layer talks only to the one below it.
 ### Why a schema card and not RAG
 
 The corpus that matters is small enough to fit in context: about 200 predicates
-across 11 metadata graphs, plus categories and groups — about 4k tokens all in.
+across 13 metadata graphs, plus categories and groups — about 4k tokens all in.
 Retrieval over something that already fits can only lose the predicate you
 needed.
 
@@ -153,7 +153,9 @@ that reference each other, and most real questions cross two or three of them.
 | `meta:Project` | projects, via `meta:ontologyUsed` |
 | `meta:Contact` | submission contacts |
 | `meta:Review` | user reviews with ratings |
-| `meta:MappingProcess` | term-to-term mappings between ontologies |
+| `meta:MappingProcess` | how a batch of mappings was made: source, relation, date |
+| `meta:RestBackupMapping` | the mapped term pairs stored on the portal |
+| `meta:MappingCount` | mapping totals per ontology pair |
 | `meta:Category` | subject categories |
 | `meta:Group` | ontology groups |
 

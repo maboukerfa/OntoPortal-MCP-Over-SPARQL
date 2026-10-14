@@ -130,9 +130,10 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
     {
       title: "Get the AgroPortal schema",
       description:
-        "Return the full AgroPortal metadata schema: 11 named graphs — ontologies, " +
+        "Return the full AgroPortal metadata schema: 13 named graphs — ontologies, " +
         "submissions, metrics, agents, identifiers, projects, contacts, reviews, " +
-        "mappings, categories, groups — each with every predicate and its usage " +
+        "mapping processes, mapped term pairs, mapping counts, categories, groups — " +
+        "each with every predicate and its usage " +
         "count, plus worked query idioms. Call this once before writing your first " +
         "SPARQL query in a conversation. Within those graphs the predicate list is " +
         "complete: if something is not in it, it is not in the data. It does not " +

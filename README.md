@@ -211,9 +211,9 @@ Two more hops get you a person: `foaf:name` in the `foaf:Agent` graph, then
 `adms:identifier` → `skos:notation` for an ORCID or ROR. `foaf:agentType`
 separates `"person"` from `"organization"`.
 
-**Excluding `ARCHIVED` is not enough to get one row per ontology.** Many
-ontologies keep several non-archived submissions. Use the nested `NOT EXISTS`
-idiom the card teaches.
+**Excluding `ARCHIVED` is not enough to get one row per ontology.** A few
+ontologies keep several non-archived submissions (NCBITAXON has 6). Use the
+nested `NOT EXISTS` idiom the card teaches.
 
 **Virtuoso refuses expensive queries two ways.** `S1TAT` means it ran and gave
 up under the ANYTIME budget; `42000` with *"estimated execution time … exceeds

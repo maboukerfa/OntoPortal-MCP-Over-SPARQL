@@ -120,6 +120,22 @@ async function executionTests(service: QueryService): Promise<void> {
     tooExpensive.outcome === QueryOutcome.Timeout,
     String(tooExpensive.outcome),
   );
+
+  // STRSTARTS on an IRI compiles, then fails at run time with SQL state 22023.
+  // That is the query's fault, so it must read as invalid: unavailable tells the
+  // model the endpoint is down and not to retry a query it could simply fix.
+  const wrongType = await service.run(`
+    PREFIX meta: <http://data.bioontology.org/metadata/>
+    PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
+    SELECT ?domain WHERE {
+      GRAPH meta:Ontology { ?ont omv:hasDomain ?domain . FILTER (STRSTARTS(?domain, "http")) }
+    } LIMIT 1
+  `);
+  check(
+    "a run-time type error reads as invalid, not unavailable",
+    wrongType.outcome === QueryOutcome.Invalid,
+    `${wrongType.outcome}: ${wrongType.advice?.slice(0, 120) ?? ""}`,
+  );
 }
 
 /**

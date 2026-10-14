@@ -8,8 +8,19 @@
 const HTTP_OK = 200;
 
 /** Virtuoso surfaces its SQL state in the body prefix: "Virtuoso <code> Error ..." */
-const VIRTUOSO_SYNTAX_STATE = "37000";
+const VIRTUOSO_STATE = /^Virtuoso (\w{5}) Error/m;
 const VIRTUOSO_TIMEOUT_STATE = "S1TAT";
+
+/**
+ * SQL state classes (the first two characters) that blame the query itself:
+ *
+ *   22 — data exception: 22023 when STRSTARTS() is handed an IRI
+ *   37 — syntax error: 37000 for an undefined prefix
+ *   42 — syntax or access rule violation
+ *
+ * The model can fix these, so they must not read as an outage.
+ */
+const QUERY_ERROR_CLASSES = ["22", "37", "42"];
 
 /**
  * Virtuoso refuses a query two different ways, and they look nothing alike.
@@ -34,7 +45,7 @@ export enum QueryOutcome {
   Ok = "ok",
   /** Query ran and returned zero rows — usually a wrong graph or predicate, not an error. */
   Empty = "empty",
-  /** Virtuoso refused to compile it: bad syntax, undefined prefix. */
+  /** Virtuoso blamed the query: bad syntax, undefined prefix, a function given the wrong type. */
   Invalid = "invalid",
   /** Too expensive: either the ANYTIME budget ran out or the cost estimator declined it. */
   Timeout = "timeout",
@@ -61,7 +72,11 @@ export interface EndpointOptions {
  *
  * Bodies look like:
  *   Virtuoso 37000 Error SP030: SPARQL compiler, line 2: Undefined namespace prefix ...
+ *   Virtuoso 22023 Error SL001: The SPARQL 1.1 function STRSTARTS() needs a string value ...
  *   Virtuoso S1TAT Error Query did not complete due to ANYTIME timeout.
+ *
+ * A body that is not Virtuoso's, such as a proxy's 502 page, means the endpoint
+ * itself is in trouble.
  */
 function classifyError(body: string): SparqlResult {
   const message = body.trim().split("\n\n")[0] ?? body.trim();
@@ -70,7 +85,8 @@ function classifyError(body: string): SparqlResult {
     return { outcome: QueryOutcome.Timeout, message };
   }
 
-  if (body.includes(VIRTUOSO_SYNTAX_STATE)) {
+  const state = VIRTUOSO_STATE.exec(body)?.[1];
+  if (state && QUERY_ERROR_CLASSES.includes(state.slice(0, 2))) {
     return { outcome: QueryOutcome.Invalid, message };
   }
 

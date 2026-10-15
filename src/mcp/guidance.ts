@@ -37,19 +37,25 @@ SELECT ?sub ?version ?description WHERE {
     ?ont omv:acronym "AGROVOC" .
   }
   GRAPH meta:OntologySubmission {
-    ?sub meta:ontology ?ont .
+    ?sub meta:ontology ?ont ;
+         meta:submissionId ?id ;
+         meta:submissionStatus status:RDF .
     FILTER NOT EXISTS {
       ?sub meta:submissionStatus status:ARCHIVED
     }
     OPTIONAL { ?sub omv:version ?version }
     OPTIONAL { ?sub omv:description ?description }
   }
-} ORDER BY DESC(?sub) LIMIT 1
+} ORDER BY DESC(?id) LIMIT 1
 \`\`\`
 
 Two graphs, joined on \`?ont\`. Metadata fields are almost all optional in
 practice — wrap anything non-identifying in OPTIONAL or you will silently drop
 rows.
+
+\`status:RDF\` means parsed. A newer upload is live but empty until then:
+AGROVOC 62 holds nothing while 61 serves. Order by \`meta:submissionId\`, never
+by \`?sub\`: IRIs sort as strings, so \`.../7\` outranks \`.../26\`.
 
 ### One row per ontology, with its real size
 
@@ -58,12 +64,15 @@ SELECT ?acronym ?classes WHERE {
   GRAPH meta:OntologySubmission {
     ?sub meta:ontology ?ont ;
          meta:submissionId ?id ;
+         meta:submissionStatus status:RDF ;
          meta:metrics ?m .
     FILTER NOT EXISTS {
       ?sub meta:submissionStatus status:ARCHIVED
     }
     FILTER NOT EXISTS {
-      ?other meta:ontology ?ont ; meta:submissionId ?id2 .
+      ?other meta:ontology ?ont ;
+             meta:submissionId ?id2 ;
+             meta:submissionStatus status:RDF .
       FILTER NOT EXISTS {
         ?other meta:submissionStatus status:ARCHIVED
       }
@@ -77,10 +86,12 @@ SELECT ?acronym ?classes WHERE {
 
 Three things at once, all of them easy to get wrong.
 
-The nested NOT EXISTS means "no newer live submission for this ontology". Use it
-whenever the answer should have one row per ontology. Dropping it double-counts:
-eight ontologies carry several non-archived submissions, and NCBITAXON alone
-would contribute six rows.
+The nested NOT EXISTS means "no newer parsed, live submission for this
+ontology". Use it whenever the answer should have one row per ontology. Dropping
+it double-counts: six ontologies carry several parsed, non-archived submissions,
+and NCBITAXON alone would contribute three rows. Dropping \`status:RDF\` lets in
+failed parses, whose metrics survive: TAXREF-LD (ERROR_RDF) would rank third
+with 310,008 classes the portal does not show.
 
 Size comes from the **Metrics graph**, via \`meta:metrics\`, not from
 \`omv:numberOfClasses\` on the submission. Many current submissions omit the omv
@@ -97,7 +108,9 @@ plain DESC sorts them lexically and puts 9 above 722299.
 SELECT ?name ?notation WHERE {
   GRAPH meta:Ontology { ?ont omv:acronym "AGROVOC" }
   GRAPH meta:OntologySubmission {
-    ?sub meta:ontology ?ont ; omv:hasCreator ?agent .
+    ?sub meta:ontology ?ont ;
+         meta:submissionStatus status:RDF ;
+         omv:hasCreator ?agent .
     FILTER NOT EXISTS { ?sub meta:submissionStatus status:ARCHIVED }
   }
   GRAPH foaf:Agent { ?agent foaf:name ?name }

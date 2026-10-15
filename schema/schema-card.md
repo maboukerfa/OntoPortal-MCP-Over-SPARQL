@@ -1,6 +1,6 @@
 # AgroPortal SPARQL schema card
 
-316 ontologies, 1853 submissions
+316 ontologies, 1854 submissions
 (333 not archived).
 
 ## Graph layout
@@ -15,8 +15,8 @@ identifiers in `<http://www.w3.org/ns/adms#Identifier>`.
 | graph | holds | subjects |
 |---|---|---|
 | `meta:Ontology` | One record per ontology — the catalogue entry. Identity only; descriptive metadata lives on the submission. | 316 |
-| `meta:OntologySubmission` | One record per version. Almost all descriptive metadata is here. Reach the ontology with meta:ontology. | 2,957 |
-| `meta:Metrics` | Size statistics per submission, reached via meta:metrics. Prefer these over the omv:numberOf* fields, which many current submissions omit. | 1,888 |
+| `meta:OntologySubmission` | One record per version. Almost all descriptive metadata is here. Reach the ontology with meta:ontology. | 2,958 |
+| `meta:Metrics` | Size statistics per submission, reached via meta:metrics. Prefer these over the omv:numberOf* fields, which many current submissions omit. | 1,889 |
 | `foaf:Agent` | People and organizations. omv:hasCreator, dcterms:publisher and schema:copyrightHolder point here. foaf:agentType is 'person' or 'organization'. | 1,323 |
 | `adms:Identifier` | ORCID and ROR identifiers, reached from an agent via adms:identifier. The value sits on skos:notation. | 852 |
 | `meta:Project` | Projects registered on the portal. meta:ontologyUsed links a project to the ontologies it uses. | 92 |
@@ -48,14 +48,16 @@ first resolve which submission is current.
 
 ## Idioms that are easy to get wrong
 
-**Current submission** — this is the trap that bites hardest. Excluding
-ARCHIVED is necessary but not sufficient: 9 ontologies carry more
-than one non-archived submission, so the filter alone double-counts. Pair it
-with a "no newer live sibling" check to get exactly one row per ontology:
+**Current submission** — this is the trap that bites hardest. Current means
+parsed (`status:RDF`) and not ARCHIVED: a newer upload is live but empty until
+parsed, and a failed parse keeps its metrics. Even so, 6 ontologies
+carry more than one such submission, so the filters alone double-count. Pair
+them with a "no newer live sibling" check to get exactly one row per ontology:
 
+    ?sub meta:ontology ?ont ; meta:submissionId ?id ; meta:submissionStatus status:RDF .
     FILTER NOT EXISTS { ?sub meta:submissionStatus status:ARCHIVED }
     FILTER NOT EXISTS {
-      ?other meta:ontology ?ont ; meta:submissionId ?id2 .
+      ?other meta:ontology ?ont ; meta:submissionId ?id2 ; meta:submissionStatus status:RDF .
       FILTER NOT EXISTS { ?other meta:submissionStatus status:ARCHIVED }
       FILTER (?id2 > ?id)
     }
@@ -107,50 +109,50 @@ One record per version. Almost all descriptive metadata is here. Reach the ontol
 
 | predicate | uses |
 |---|---|
-| `schema:includedInDataCatalog` | 6095 |
-| `meta:submissionStatus` | 4639 |
-| `omv:naturalLanguage` | 3864 |
+| `schema:includedInDataCatalog` | 6098 |
+| `meta:submissionStatus` | 4640 |
+| `omv:naturalLanguage` | 3866 |
 | `omv:hasContributor` | 3840 |
-| `omv:useImports` | 2599 |
-| `meta:contact` | 2481 |
+| `omv:useImports` | 2613 |
+| `meta:contact` | 2484 |
 | `omv:hasCreator` | 2159 |
 | `nkos:ontologyRelatedTo` | 2128 |
-| `voaf:metadataVoc` | 2076 |
+| `voaf:metadataVoc` | 2083 |
 | `nkos:isAlignedTo` | 1858 |
-| `meta:submissionId` | 1853 |
-| `meta:released` | 1853 |
-| `omv:status` | 1852 |
-| `rdf:type` | 1851 |
-| `omv:hasOntologyLanguage` | 1851 |
-| `omv:creationDate` | 1850 |
-| `omv:description` | 1849 |
-| `meta:ontology` | 1849 |
-| `meta:uploadFilePath` | 1848 |
-| `void:dataDump` | 1798 |
-| `void:openSearchDescription` | 1794 |
-| `owl:deprecated` | 1772 |
-| `omv:isOfType` | 1769 |
-| `meta:csvDump` | 1762 |
-| `void:uriLookupEndpoint` | 1761 |
-| `omv:URI` | 1731 |
-| `omv:version` | 1712 |
-| `sd:endpoint` | 1673 |
+| `meta:submissionId` | 1854 |
+| `meta:released` | 1854 |
+| `omv:status` | 1853 |
+| `rdf:type` | 1852 |
+| `omv:hasOntologyLanguage` | 1852 |
+| `omv:creationDate` | 1851 |
+| `omv:description` | 1850 |
+| `meta:ontology` | 1850 |
+| `meta:uploadFilePath` | 1849 |
+| `void:dataDump` | 1799 |
+| `void:openSearchDescription` | 1795 |
+| `owl:deprecated` | 1773 |
+| `omv:isOfType` | 1770 |
+| `meta:csvDump` | 1763 |
+| `void:uriLookupEndpoint` | 1762 |
+| `omv:URI` | 1732 |
+| `omv:version` | 1713 |
+| `sd:endpoint` | 1674 |
 | `omv:hasDomain` | 1659 |
-| `dcterms:source` | 1649 |
-| `meta:metrics` | 1637 |
-| `idot:exampleIdentifier` | 1592 |
-| `meta:prefLabelProperty` | 1589 |
-| `meta:definitionProperty` | 1584 |
-| `meta:authorProperty` | 1584 |
-| `meta:synonymProperty` | 1584 |
+| `dcterms:source` | 1651 |
+| `meta:metrics` | 1638 |
+| `idot:exampleIdentifier` | 1593 |
+| `meta:prefLabelProperty` | 1590 |
+| `meta:definitionProperty` | 1585 |
+| `meta:authorProperty` | 1585 |
+| `meta:synonymProperty` | 1585 |
 | `omv:hasFormalityLevel` | 1557 |
 | `omv:hasLicense` | 1497 |
-| `vann:preferredNamespacePrefix` | 1464 |
-| `meta:pullLocation` | 1427 |
+| `vann:preferredNamespacePrefix` | 1465 |
+| `meta:pullLocation` | 1428 |
 | `omv:hasOntologySyntax` | 1415 |
 | `foaf:homepage` | 1392 |
 | `omv:documentation` | 1379 |
-| `meta:diffFilePath` | 1296 |
+| `meta:diffFilePath` | 1297 |
 | `omv:notes` | 1292 |
 | `omv:hasPriorVersion` | 1194 |
 | `omv:numberOfClasses` | 1120 |
@@ -165,23 +167,23 @@ One record per version. Almost all descriptive metadata is here. Reach the ontol
 | `dcterms:publisher` | 1085 |
 | `dcterms:identifier` | 1053 |
 | `omv:usedOntologyEngineeringTool` | 980 |
-| `vann:preferredNamespaceUri` | 974 |
+| `vann:preferredNamespaceUri` | 975 |
 | `omv:endorsedBy` | 973 |
 | `doap:repository` | 869 |
 | `omv:modificationDate` | 860 |
-| `owl:versionIRI` | 851 |
+| `owl:versionIRI` | 852 |
 | `doap:bugDatabase` | 842 |
 | `omv:keywords` | 802 |
-| `meta:obsoleteProperty` | 800 |
-| `meta:modifiedProperty` | 799 |
-| `meta:createdProperty` | 799 |
+| `meta:obsoleteProperty` | 801 |
+| `meta:modifiedProperty` | 800 |
+| `meta:createdProperty` | 800 |
 | `meta:publication` | 795 |
-| `meta:hierarchyProperty` | 766 |
+| `meta:hierarchyProperty` | 767 |
 | `omv:knownUsage` | 752 |
 | `meta:homepage` | 749 |
 | `meta:obsoleteParent` | 688 |
-| `void:uriRegexPattern` | 606 |
-| `dcterms:abstract` | 595 |
+| `void:uriRegexPattern` | 607 |
+| `dcterms:abstract` | 596 |
 | `foaf:fundedBy` | 593 |
 | `foaf:logo` | 547 |
 | `cc:morePermissions` | 485 |
@@ -190,7 +192,7 @@ One record per version. Almost all descriptive metadata is here. Reach the ontol
 | `dcterms:alternative` | 368 |
 | `foaf:depiction` | 361 |
 | `pav:curatedBy` | 342 |
-| `meta:missingImports` | 306 |
+| `meta:missingImports` | 309 |
 | `dcterms:isFormatOf` | 305 |
 | `omv:designedForOntologyTask` | 282 |
 | `omv:keyClasses` | 277 |
@@ -234,17 +236,17 @@ Size statistics per submission, reached via meta:metrics. Prefer these over the 
 
 | predicate | uses |
 |---|---|
-| `meta:maxDepth` | 1887 |
-| `meta:averageChildCount` | 1886 |
-| `meta:classesWithNoDefinition` | 1885 |
-| `meta:classesWithMoreThan25Children` | 1885 |
-| `meta:properties` | 1885 |
-| `meta:classes` | 1885 |
-| `rdf:type` | 1885 |
-| `meta:classesWithOneChild` | 1885 |
-| `meta:individuals` | 1885 |
-| `meta:created` | 1885 |
-| `meta:maxChildCount` | 1885 |
+| `meta:maxDepth` | 1888 |
+| `meta:averageChildCount` | 1887 |
+| `meta:classesWithNoDefinition` | 1886 |
+| `meta:classesWithMoreThan25Children` | 1886 |
+| `meta:properties` | 1886 |
+| `meta:classes` | 1886 |
+| `rdf:type` | 1886 |
+| `meta:classesWithOneChild` | 1886 |
+| `meta:individuals` | 1886 |
+| `meta:created` | 1886 |
+| `meta:maxChildCount` | 1886 |
 
 ### foaf:Agent — `<http://xmlns.com/foaf/0.1/Agent>`
 

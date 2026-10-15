@@ -77,17 +77,23 @@ export const OMV = {
 /**
  * A submission is superseded when it carries the ARCHIVED status.
  *
- * Filtering out ARCHIVED is necessary but NOT sufficient to get one row per
- * ontology: 8 ontologies carry several non-archived submissions (NCBITAXON has
- * 6). Pair the filter with a "no newer live sibling" NOT EXISTS — see the
- * current-submission idiom in the few-shot examples.
+ * Filtering out ARCHIVED and requiring RDF is necessary but NOT sufficient to
+ * get one row per ontology: 6 ontologies carry several parsed, non-archived
+ * submissions (NCBITAXON has 3). Pair the filters with a "no newer live
+ * sibling" NOT EXISTS — see the current-submission idiom in the few-shot
+ * examples.
  *
- * MAX(submissionId) happens to agree today (no ontology's highest id is
- * archived) but that is an observed coincidence, not a guarantee, and ids are
- * not contiguous, so it reads as if it were picking an arbitrary version.
+ * MAX(submissionId) is wrong: AGROVOC's highest id, 62, is unparsed. And ids
+ * are not contiguous, so it reads as if it were picking an arbitrary version.
  */
 export const SUBMISSION_STATUS_ARCHIVED =
   "http://data.bioontology.org/submission_statuses/ARCHIVED";
+
+/**
+ * A submission is parsed when it carries the RDF status. Until then its
+ * content graph is empty: AGROVOC 62 was UPLOADED only while 61 served.
+ */
+export const SUBMISSION_STATUS_RDF = "http://data.bioontology.org/submission_statuses/RDF";
 
 /** Content graphs are per-submission: .../ontologies/{ACRONYM}/submissions/{ID} */
 export const CONTENT_GRAPH_PREFIX = "http://data.bioontology.org/ontologies/";

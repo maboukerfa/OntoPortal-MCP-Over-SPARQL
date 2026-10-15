@@ -9,13 +9,13 @@ for agronomy and related domains, without hallucinating its vocabulary.
 
 Ask your host *"Which three ontologies in AgroPortal have the most classes?"*
 The tool description and schema card point the model at the Metrics graph,
-and the query they lead to returns (live data, 2026-10-14):
+and the query they lead to returns (live data, 2026-10-15):
 
 | ontology | classes |
 |---|---|
 | NCBITAXON | 722,299 |
 | PR | 332,990 |
-| TAXREF-LD | 310,008 |
+| EPPO | 138,099 |
 
 The obvious query, over `omv:numberOfClasses`, answers GR-TAX with 58,598.
 Nothing about it looks wrong. That gap is what this server exists to close.
@@ -211,9 +211,11 @@ Two more hops get you a person: `foaf:name` in the `foaf:Agent` graph, then
 `adms:identifier` → `skos:notation` for an ORCID or ROR. `foaf:agentType`
 separates `"person"` from `"organization"`.
 
-**Excluding `ARCHIVED` is not enough to get one row per ontology.** A few
-ontologies keep several non-archived submissions (NCBITAXON has 6). Use the
-nested `NOT EXISTS` idiom the card teaches.
+**The current submission is the newest parsed one.** A fresh upload is live
+but empty until parsed (`status:RDF`): AGROVOC 62 holds nothing while 61
+serves. A failed parse keeps its metrics, so TAXREF-LD would rank third by
+size. Even parsed and unarchived, a few ontologies keep several submissions
+(NCBITAXON has 3). Use the nested `NOT EXISTS` idiom the card teaches.
 
 **Virtuoso refuses expensive queries two ways.** `S1TAT` means it ran and gave
 up under the ANYTIME budget; `42000` with *"estimated execution time … exceeds

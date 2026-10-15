@@ -26,6 +26,7 @@ import {
   GRAPHS,
   META,
   SUBMISSION_STATUS_ARCHIVED,
+  SUBMISSION_STATUS_RDF,
   compact,
 } from "./vocabulary.js";
 
@@ -152,7 +153,7 @@ export interface SchemaCard {
   groups: TermFact[];
   largestContentGraphs: { graph: string; triples: number }[];
   idGap: IdGapFact | null;
-  /** Ontologies carrying more than one non-archived submission. */
+  /** Ontologies carrying more than one parsed, non-archived submission. */
   multiLiveCount: number;
 }
 
@@ -290,14 +291,15 @@ export async function buildSchemaCard(
 
   const idGap = await findIdGap(endpoint);
 
-  // The ARCHIVED filter alone does not yield one row per ontology. Measuring
+  // The status filters alone do not yield one row per ontology. Measuring
   // how badly is what justifies the nested NOT EXISTS in the examples.
   const multiLiveCount = await countOf(
     endpoint,
     `SELECT (COUNT(*) AS ?n) WHERE {
        { SELECT ?ont (COUNT(?sub) AS ?live) WHERE {
            GRAPH <${GRAPHS.submission}> {
-             ?sub <${META.ontology}> ?ont .
+             ?sub <${META.ontology}> ?ont ;
+                  <${META.submissionStatus}> <${SUBMISSION_STATUS_RDF}> .
              FILTER NOT EXISTS {
                ?sub <${META.submissionStatus}> <${SUBMISSION_STATUS_ARCHIVED}>
              }
@@ -424,14 +426,16 @@ first resolve which submission is current.
 
 ## Idioms that are easy to get wrong
 
-**Current submission** — this is the trap that bites hardest. Excluding
-ARCHIVED is necessary but not sufficient: ${card.multiLiveCount} ontologies carry more
-than one non-archived submission, so the filter alone double-counts. Pair it
-with a "no newer live sibling" check to get exactly one row per ontology:
+**Current submission** — this is the trap that bites hardest. Current means
+parsed (\`status:RDF\`) and not ARCHIVED: a newer upload is live but empty until
+parsed, and a failed parse keeps its metrics. Even so, ${card.multiLiveCount} ontologies
+carry more than one such submission, so the filters alone double-count. Pair
+them with a "no newer live sibling" check to get exactly one row per ontology:
 
+    ?sub meta:ontology ?ont ; meta:submissionId ?id ; meta:submissionStatus status:RDF .
     FILTER NOT EXISTS { ?sub meta:submissionStatus status:ARCHIVED }
     FILTER NOT EXISTS {
-      ?other meta:ontology ?ont ; meta:submissionId ?id2 .
+      ?other meta:ontology ?ont ; meta:submissionId ?id2 ; meta:submissionStatus status:RDF .
       FILTER NOT EXISTS { ?other meta:submissionStatus status:ARCHIVED }
       FILTER (?id2 > ?id)
     }

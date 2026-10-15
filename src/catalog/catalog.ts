@@ -18,6 +18,7 @@ import {
   META,
   OMV,
   SUBMISSION_STATUS_ARCHIVED,
+  SUBMISSION_STATUS_RDF,
 } from "./vocabulary.js";
 
 const MAX_MATCHES = 10;
@@ -98,8 +99,8 @@ export class Catalog {
   }
 
   /**
-   * The submission currently serving an ontology's content, identified by the
-   * absence of ARCHIVED rather than by the highest id.
+   * The submission currently serving an ontology's content: the newest parsed
+   * one that is not ARCHIVED. A newer upload stays empty until parsed.
    */
   async latestSubmission(acronym: string): Promise<SubmissionRef | null> {
     const needle = literal(acronym.trim());
@@ -111,7 +112,9 @@ export class Catalog {
           FILTER (LCASE(STR(?acronym)) = LCASE("${needle}"))
         }
         GRAPH <${GRAPHS.submission}> {
-          ?sub <${META.ontology}> ?ont ; <${META.submissionId}> ?id .
+          ?sub <${META.ontology}> ?ont ;
+               <${META.submissionId}> ?id ;
+               <${META.submissionStatus}> <${SUBMISSION_STATUS_RDF}> .
           FILTER NOT EXISTS {
             ?sub <${META.submissionStatus}> <${SUBMISSION_STATUS_ARCHIVED}>
           }

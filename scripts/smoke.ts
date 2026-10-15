@@ -13,8 +13,9 @@
 import { Catalog } from "../src/catalog/catalog.js";
 import { QueryService } from "../src/catalog/execution.js";
 import { buildSchemaCard, renderSchemaCard } from "../src/catalog/introspect.js";
-import { AGROPORTAL_ENDPOINT } from "../src/catalog/vocabulary.js";
+import { AGROPORTAL_ENDPOINT, prefixBlock } from "../src/catalog/vocabulary.js";
 import { GuardVerdict, guard } from "../src/guards/guards.js";
+import { EXAMPLES } from "../src/mcp/guidance.js";
 import { QueryOutcome, SparqlEndpoint } from "../src/sparql/endpoint.js";
 
 let failures = 0;
@@ -25,6 +26,32 @@ function check(name: string, passed: boolean, detail = ""): void {
     failures += 1;
   }
   process.stdout.write(`  [${mark}] ${name}${detail ? ` — ${detail}` : ""}\n`);
+}
+
+/**
+ * A worked example exactly as the model reads it: the first sparql block
+ * under `heading`, behind the prefixes the host prompt declares. Testing a
+ * copy instead would let the example drift unnoticed.
+ */
+function example(heading: string): string {
+  const section = EXAMPLES.split(`### ${heading}\n`)[1] ?? "";
+  const body = /```sparql\n([\s\S]*?)```/.exec(section)?.[1] ?? "";
+  return `${prefixBlock()}\n${body}`;
+}
+
+/** Parsed means status RDF: until then a submission's content graph is empty. */
+async function isParsed(endpoint: SparqlEndpoint, submissionIri: string): Promise<boolean> {
+  const result = await endpoint.select(`
+    PREFIX meta: <http://data.bioontology.org/metadata/>
+    PREFIX status: <http://data.bioontology.org/submission_statuses/>
+    SELECT ?status WHERE {
+      GRAPH meta:OntologySubmission {
+        <${submissionIri}> meta:submissionStatus ?status .
+        FILTER (?status = status:RDF)
+      }
+    } LIMIT 1
+  `);
+  return result.outcome === QueryOutcome.Ok;
 }
 
 function guardTests(): void {
@@ -52,7 +79,7 @@ function guardTests(): void {
   check("does not trip on DELETE inside a literal", literal.verdict === GuardVerdict.Allowed);
 }
 
-async function catalogTests(catalog: Catalog): Promise<void> {
+async function catalogTests(catalog: Catalog, endpoint: SparqlEndpoint): Promise<void> {
   process.stdout.write("\ncatalog\n");
 
   const matches = await catalog.findOntology("agrovoc");
@@ -63,6 +90,14 @@ async function catalogTests(catalog: Catalog): Promise<void> {
   check(
     "finds AGROVOC current submission",
     submission !== null && submission.contentGraph.includes("/submissions/"),
+    submission?.contentGraph ?? "none",
+  );
+
+  // An uploaded submission stays empty until parsed (AGROVOC 62 on
+  // 2026-10-15), so the current one must carry RDF, as on the portal.
+  check(
+    "AGROVOC current submission is parsed",
+    await isParsed(endpoint, submission?.submissionIri ?? ""),
     submission?.contentGraph ?? "none",
   );
 
@@ -143,7 +178,7 @@ async function executionTests(service: QueryService): Promise<void> {
  * The idioms the schema card teaches. If one of these breaks, the card is
  * lying to the model and must be regenerated or corrected.
  */
-async function idiomTests(service: QueryService): Promise<void> {
+async function idiomTests(service: QueryService, catalog: Catalog): Promise<void> {
   process.stdout.write("\ncard idioms\n");
 
   const currentSubmission = await service.run(`
@@ -152,10 +187,11 @@ async function idiomTests(service: QueryService): Promise<void> {
     PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
     SELECT ?acronym ?classes WHERE {
       GRAPH meta:OntologySubmission {
-        ?sub meta:ontology ?ont ; meta:submissionId ?id ; omv:numberOfClasses ?classes .
+        ?sub meta:ontology ?ont ; meta:submissionId ?id ; meta:submissionStatus status:RDF ;
+             omv:numberOfClasses ?classes .
         FILTER NOT EXISTS { ?sub meta:submissionStatus status:ARCHIVED }
         FILTER NOT EXISTS {
-          ?other meta:ontology ?ont ; meta:submissionId ?id2 .
+          ?other meta:ontology ?ont ; meta:submissionId ?id2 ; meta:submissionStatus status:RDF .
           FILTER NOT EXISTS { ?other meta:submissionStatus status:ARCHIVED }
           FILTER (?id2 > ?id)
         }
@@ -173,28 +209,29 @@ async function idiomTests(service: QueryService): Promise<void> {
     `${acronyms.length} rows, ${unique.size} distinct`,
   );
 
+  // The named-ontology example must agree with resolve_ontology. Two traps
+  // on 2026-10-15: AGROVOC 62 is uploaded but unparsed, and submission IRIs
+  // sort as strings, which puts NCBITAXON's ".../7" above ".../26".
+  for (const acronym of ["AGROVOC", "NCBITAXON"]) {
+    const named = await service.run(
+      example("The current submission of a named ontology").replace(
+        '"AGROVOC"',
+        `"${acronym}"`,
+      ),
+    );
+    const expected = await catalog.latestSubmission(acronym);
+    const picked = named.rows?.[0]?.sub;
+    check(
+      `named-ontology example picks ${acronym}'s current submission`,
+      picked !== undefined && picked === expected?.submissionIri,
+      `${picked ?? "none"}, resolve_ontology says ${expected?.submissionIri ?? "none"}`,
+    );
+  }
+
   // The size idiom must go through Metrics, not omv:numberOfClasses. If this
   // ever ranks a small vocabulary top, the omv route has crept back in: most
   // current submissions omit the omv fields, so it silently drops the giants.
-  const sizes = await service.run(`
-    PREFIX meta: <http://data.bioontology.org/metadata/>
-    PREFIX status: <http://data.bioontology.org/submission_statuses/>
-    PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
-    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-    SELECT ?acronym ?classes WHERE {
-      GRAPH meta:OntologySubmission {
-        ?sub meta:ontology ?ont ; meta:submissionId ?id ; meta:metrics ?m .
-        FILTER NOT EXISTS { ?sub meta:submissionStatus status:ARCHIVED }
-        FILTER NOT EXISTS {
-          ?other meta:ontology ?ont ; meta:submissionId ?id2 .
-          FILTER NOT EXISTS { ?other meta:submissionStatus status:ARCHIVED }
-          FILTER (?id2 > ?id)
-        }
-      }
-      GRAPH meta:Metrics { ?m meta:classes ?classes }
-      GRAPH meta:Ontology { ?ont omv:acronym ?acronym }
-    } ORDER BY DESC(xsd:integer(?classes)) LIMIT 3
-  `);
+  const sizes = await service.run(example("One row per ontology, with its real size"));
   const biggest = sizes.rows?.[0];
   check(
     "metrics idiom ranks the genuinely largest ontology first",
@@ -202,26 +239,36 @@ async function idiomTests(service: QueryService): Promise<void> {
     `${biggest?.acronym ?? "none"} ${biggest?.classes ?? ""}`,
   );
 
+  // Metrics survive a failed parse: TAXREF-LD's only live submission is
+  // ERROR_RDF yet carries 310,008 classes, while the portal shows no size.
+  const ranked = sizes.rows ?? [];
+  const unparsed: string[] = [];
+  for (const row of ranked) {
+    if ((await catalog.latestSubmission(row.acronym ?? "")) === null) {
+      unparsed.push(row.acronym ?? "");
+    }
+  }
+  check(
+    "metrics idiom ranks only parsed submissions",
+    ranked.length > 0 && unparsed.length === 0,
+    unparsed.length > 0 ? `unparsed: ${unparsed.join(", ")}` : `${ranked.length} ranked`,
+  );
+
   // omv:hasCreator yields an opaque agent IRI; a name needs the foaf:Agent
   // graph, which lives outside the meta: namespace.
-  const creators = await service.run(`
-    PREFIX meta: <http://data.bioontology.org/metadata/>
-    PREFIX status: <http://data.bioontology.org/submission_statuses/>
-    PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
-    PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-    SELECT ?name WHERE {
-      GRAPH meta:Ontology { ?ont omv:acronym "AGROVOC" }
-      GRAPH meta:OntologySubmission {
-        ?sub meta:ontology ?ont ; omv:hasCreator ?agent .
-        FILTER NOT EXISTS { ?sub meta:submissionStatus status:ARCHIVED }
-      }
-      GRAPH foaf:Agent { ?agent foaf:name ?name }
-    } LIMIT 5
-  `);
+  const creators = await service.run(example("Who created an ontology"));
   check(
     "agent join resolves a creator IRI to a name",
     creators.outcome === QueryOutcome.Ok,
     creators.rows?.[0]?.name ?? "no name",
+  );
+
+  // Every live submission repeats the creator: AGROVOC 61 and 62 both name FAO.
+  const credits = (creators.rows ?? []).map((row) => JSON.stringify(row));
+  check(
+    "agent join lists each creator once",
+    credits.length > 0 && new Set(credits).size === credits.length,
+    `${credits.length} rows, ${new Set(credits).size} distinct`,
   );
 
   const projects = await service.run(`
@@ -262,6 +309,10 @@ async function cardTests(endpoint: SparqlEndpoint): Promise<void> {
   const card = renderSchemaCard(await buildSchemaCard(endpoint));
   check("card covers the mapped term pairs", card.includes("meta:class_urns"));
   check("card covers the mapping totals per ontology pair", card.includes("meta:pair_count"));
+  check(
+    "card's current-submission idiom requires a parsed submission",
+    card.includes("meta:submissionStatus status:RDF"),
+  );
 }
 
 async function main(): Promise<void> {
@@ -270,9 +321,9 @@ async function main(): Promise<void> {
   });
 
   guardTests();
-  await catalogTests(new Catalog(endpoint));
+  await catalogTests(new Catalog(endpoint), endpoint);
   await executionTests(new QueryService(endpoint));
-  await idiomTests(new QueryService(endpoint));
+  await idiomTests(new QueryService(endpoint), new Catalog(endpoint));
   await cardTests(endpoint);
 
   process.stdout.write(failures === 0 ? "\nall passed\n" : `\n${failures} failed\n`);

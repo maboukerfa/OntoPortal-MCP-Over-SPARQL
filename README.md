@@ -95,6 +95,21 @@ has no authentication, so expose it only through a proxy that terminates TLS.
 Stateless: no session outlives its request, so replicas need no sticky routing.
 Browser requests from origins other than this machine get 403.
 
+### In Docker
+
+```bash
+docker compose up -d --build        # http://127.0.0.1:8080/mcp
+```
+
+`PORTAL_NAME` and `PORTAL_SPARQL_URL` come from the shell or a `.env` file
+(see `.env.example`). Compose publishes on loopback only, for the reason
+above. The image also speaks stdio, for hosts that launch their own server:
+
+```bash
+claude mcp add -s user ontoportal -- \
+  docker run -i --rm ontoportal-sparql-mcp --transport stdio
+```
+
 ## Surface
 
 **Tools**

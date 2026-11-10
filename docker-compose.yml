@@ -1,0 +1,27 @@
+# MCP over HTTP on http://127.0.0.1:8080/mcp.
+#
+# Published on loopback only: the server has no authentication. Put a proxy
+# that terminates TLS in front before exposing it wider.
+services:
+  mcp:
+    build: .
+    image: ontoportal-sparql-mcp
+    # Node as PID 1 ignores SIGTERM; the init process forwards it.
+    init: true
+    restart: unless-stopped
+    environment:
+      # Read from the shell or .env; unset falls back to AgroPortal.
+      - PORTAL_NAME
+      - PORTAL_SPARQL_URL
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      # Any HTTP answer means it is serving: GET /mcp gets 405.
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8080/mcp').then(() => process.exit(0), () => process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3

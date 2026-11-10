@@ -24,7 +24,7 @@ enum EventKind {
 /** How a call ended, for tools without outcomes of their own. */
 enum Outcome {
   Ok = "ok",
-  /** Zero results: for resolve_ontology, a term AgroPortal does not have. */
+  /** Zero results: for resolve_ontology, a term the portal does not have. */
   Empty = "empty",
   /** The handler threw. */
   Error = "error",

@@ -1,5 +1,5 @@
 /**
- * AgroPortal's fixed vocabulary: endpoint, named graphs, prefixes.
+ * OntoPortal's fixed vocabulary: named graphs, prefixes.
  *
  * These IRIs are stable across deployments (AgroPortal inherits the
  * data.bioontology.org namespace from its OntoPortal upstream, even though the
@@ -7,8 +7,6 @@
  * predicate lists, counts, category values — belongs in the generated schema
  * card, not here.
  */
-
-export const AGROPORTAL_ENDPOINT = "https://sparql.agroportal.eu/sparql";
 
 const METADATA_NS = "http://data.bioontology.org/metadata";
 

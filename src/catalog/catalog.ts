@@ -50,7 +50,7 @@ function literal(term: string): string {
 
 /**
  * A failed lookup throws rather than reading as zero rows: "no ontology
- * matches" during an outage has the model tell the user AgroPortal lacks an
+ * matches" during an outage has the model tell the user the portal lacks an
  * ontology it has.
  */
 function rowsOf(result: SparqlResult): Record<string, string>[] {
@@ -60,7 +60,7 @@ function rowsOf(result: SparqlResult): Record<string, string>[] {
 
   if (result.outcome !== QueryOutcome.Ok) {
     throw new Error(
-      `AgroPortal's endpoint failed this lookup (${result.outcome}: ${result.message}). ` +
+      `The endpoint failed this lookup (${result.outcome}: ${result.message}). ` +
         `This is not an empty result: retry once, then tell the user the lookup failed.`,
     );
   }

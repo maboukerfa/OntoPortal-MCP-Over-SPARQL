@@ -1,5 +1,5 @@
 {
-  "name": "agroportal-sparql-mcp",
+  "name": "ontoportal-sparql-mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "bin": {
-    "agroportal-sparql-mcp": "dist/src/mcp/server.js"
+    "ontoportal-sparql-mcp": "dist/src/mcp/server.js"
   },
   "scripts": {
     "build": "tsc",

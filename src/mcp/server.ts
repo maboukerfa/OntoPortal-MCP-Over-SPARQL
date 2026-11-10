@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MCP server exposing AgroPortal's SPARQL endpoint.
+ * MCP server exposing an OntoPortal deployment's SPARQL endpoint.
  *
  * The shift from the standalone agent: the host owns the model and the loop.
  * There is no Anthropic SDK here and no orchestration — the repair loop happens
@@ -30,14 +30,15 @@ import { z } from "zod";
 import { CardService } from "../catalog/card.js";
 import { Catalog } from "../catalog/catalog.js";
 import { QueryService } from "../catalog/execution.js";
-import { AGROPORTAL_ENDPOINT, prefixBlock } from "../catalog/vocabulary.js";
+import { portalFromEnv } from "../catalog/portal.js";
+import { prefixBlock } from "../catalog/vocabulary.js";
 import { SparqlEndpoint } from "../sparql/endpoint.js";
-import { EXAMPLES, ORIENTATION } from "./guidance.js";
+import { EXAMPLES, orientation } from "./guidance.js";
 import { serveHttp } from "./http.js";
 import { findSchemaCard } from "./paths.js";
 import { logged, watchSession } from "./usage.js";
 
-const SERVER_NAME = "agroportal-sparql";
+const SERVER_NAME = "ontoportal-sparql";
 const SERVER_VERSION = "0.1.0";
 
 enum ToolName {
@@ -59,8 +60,8 @@ const DEFAULT_HOST = "127.0.0.1";
 /** Not 3000, which the OntoPortal UI takes in development. */
 const DEFAULT_PORT = 8080;
 
-const CARD_URI = "agroportal://schema-card";
-const EXAMPLES_URI = "agroportal://examples";
+const CARD_URI = "ontoportal://schema-card";
+const EXAMPLES_URI = "ontoportal://examples";
 
 const MARKDOWN = "text/markdown";
 
@@ -76,21 +77,26 @@ interface Services {
   catalog: Catalog;
   queries: QueryService;
   cards: CardService;
+  /** The portal's display name, as the model reads it in descriptions. */
+  portal: string;
 }
 
 function buildServices(): Services {
-  const endpoint = new SparqlEndpoint({
-    url: process.env.AGROPORTAL_SPARQL_URL ?? AGROPORTAL_ENDPOINT,
-  });
+  const portal = portalFromEnv();
+  const endpoint = new SparqlEndpoint({ url: portal.sparqlUrl });
 
   return {
     catalog: new Catalog(endpoint),
     queries: new QueryService(endpoint),
-    cards: new CardService(endpoint, findSchemaCard),
+    cards: new CardService(endpoint, portal.name, findSchemaCard),
+    portal: portal.name,
   };
 }
 
-function buildServer({ catalog, queries, cards }: Services, session: string): McpServer {
+function buildServer(
+  { catalog, queries, cards, portal }: Services,
+  session: string,
+): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
   // --- Resources: for hosts that can attach context without a tool call ------
@@ -99,7 +105,7 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
     "schema-card",
     CARD_URI,
     {
-      title: "AgroPortal schema card",
+      title: `${portal} schema card`,
       description:
         "Generated from the live endpoint: every metadata predicate with usage " +
         "counts, the named-graph layout, categories, groups, and query idioms.",
@@ -114,7 +120,7 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
     "examples",
     EXAMPLES_URI,
     {
-      title: "AgroPortal query idioms",
+      title: `${portal} query idioms`,
       description: "Worked SPARQL examples, each verified against the endpoint.",
       mimeType: MARKDOWN,
     },
@@ -128,9 +134,9 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
   server.registerTool(
     ToolName.GetSchemaCard,
     {
-      title: "Get the AgroPortal schema",
+      title: `Get the ${portal} schema`,
       description:
-        "Return the full AgroPortal metadata schema: 13 named graphs — ontologies, " +
+        `Return the full ${portal} metadata schema: 13 named graphs — ontologies, ` +
         "submissions, metrics, agents, identifiers, projects, contacts, reviews, " +
         "mapping processes, mapped term pairs, mapping counts, categories, groups — " +
         "each with every predicate and its usage " +
@@ -183,14 +189,14 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
   server.registerTool(
     ToolName.RunSparql,
     {
-      title: "Run SPARQL against AgroPortal",
+      title: `Run SPARQL against ${portal}`,
       description:
-        "Execute a read-only SPARQL query against the AgroPortal endpoint and " +
+        `Execute a read-only SPARQL query against the ${portal} endpoint and ` +
         "return the rows. Rejects writes and unscoped patterns, caps result size, " +
         "and reports errors, timeouts and empty results with advice on how to " +
         "repair the query — read that advice and call again rather than giving up." +
         "\n\n" +
-        ORIENTATION,
+        orientation(portal),
       inputSchema: {
         query: z
           .string()
@@ -212,7 +218,7 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
     {
       title: "List categories or groups",
       description:
-        "List AgroPortal's subject categories or ontology groups with their IRIs. " +
+        `List ${portal}'s subject categories or ontology groups with their IRIs. ` +
         "Both are small closed vocabularies used to filter ontologies; category " +
         "and group values are IRIs, not strings.",
       inputSchema: {
@@ -228,11 +234,11 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
   // --- Prompt: a ready-made framing for hosts that surface slash commands ----
 
   server.registerPrompt(
-    "query_agroportal",
+    "query_portal",
     {
-      title: "Ask AgroPortal a question",
+      title: `Ask ${portal} a question`,
       description:
-        "Answer a question about AgroPortal's ontologies by querying the SPARQL " +
+        `Answer a question about ${portal}'s ontologies by querying the SPARQL ` +
         "endpoint, with the schema and idioms preloaded.",
       argsSchema: {
         question: z.string().describe("The question to answer"),
@@ -245,7 +251,7 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
           content: {
             type: "text" as const,
             text: [
-              "Answer this question about AgroPortal by querying its SPARQL endpoint.",
+              `Answer this question about ${portal} by querying its SPARQL endpoint.`,
               "",
               `Question: ${question}`,
               "",
@@ -256,7 +262,7 @@ function buildServer({ catalog, queries, cards }: Services, session: string): Mc
               "  query fails and you cannot repair it, say so and show what you tried.",
               "- Zero rows nearly always means the query was wrong, not that the",
               "  answer is zero. Check the graph and the predicate before concluding.",
-              "- AgroPortal is multilingual. Before saying something is not available,",
+              `- ${portal} is multilingual. Before saying something is not available,`,
               "  retry with the term translated and without any LANG() filter.",
               "- Answer in prose with the figures you retrieved, then show the query.",
               "",

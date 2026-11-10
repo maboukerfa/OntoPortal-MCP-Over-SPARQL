@@ -164,7 +164,7 @@ SELECT ?c ?label WHERE {
 } LIMIT 100
 \`\`\`
 
-Content graphs are ordinary SKOS/OWL — no AgroPortal vocabulary applies inside
+Content graphs are ordinary SKOS/OWL — no OntoPortal vocabulary applies inside
 them. Some ontologies use SKOS-XL instead, where the label is reached with
 \`skosxl:prefLabel/skosxl:literalForm\`.
 
@@ -183,7 +183,8 @@ filter is dropped and the term tried in other languages.
  * expensive mistakes live here. Keep it short: this text is resent on every
  * request, and it competes with the rest of the host's context.
  */
-export const ORIENTATION = `AgroPortal metadata is split across named graphs; always scope with GRAPH.
+export function orientation(portal: string): string {
+  return `${portal} metadata is split across named graphs; always scope with GRAPH.
   meta:Ontology            one record per ontology (omv:acronym, omv:name)
   meta:OntologySubmission  one record per version (omv:description, omv:hasLicense)
   meta:Metrics             sizes — reach via meta:metrics, NOT omv:numberOfClasses
@@ -193,7 +194,8 @@ export const ORIENTATION = `AgroPortal metadata is split across named graphs; al
   <.../ontologies/{ACRONYM}/submissions/{ID}>  that version's SKOS/OWL content
 Fields you expect from Dublin Core are OMV here: use omv:name and omv:hasCreator,
 NOT dcterms:title or dcterms:creator, which do not exist on these records.
-AgroPortal is multilingual: names, descriptions and labels come in English,
-French, Spanish and many more. Before saying something is not in AgroPortal,
+${portal} is multilingual: names, descriptions and labels come in English,
+French, Spanish and many more. Before saying something is not in ${portal},
 retry with the term translated and without any LANG() filter.
 Call get_schema_card for the full predicate list before writing a query.`;
+}

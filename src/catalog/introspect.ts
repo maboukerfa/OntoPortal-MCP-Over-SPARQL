@@ -13,7 +13,7 @@
  * budget, and the portal's graphs do not share a namespace — the agent model
  * lives under foaf:, the identifier model under adms:. Discovery by namespace
  * prefix misses them silently, which is how the first version of this card
- * shipped with no agents, projects, metrics or mappings in it. When AgroPortal
+ * shipped with no agents, projects, metrics or mappings in it. When OntoPortal
  * adds a graph, add it to PROFILED.
  */
 
@@ -363,7 +363,7 @@ function predicateTable(facts: PredicateFact[]): string {
  * prefix, so it must be byte-stable between runs when the data has not changed
  * — hence sorted inputs everywhere and a timestamp kept out of the cached body.
  */
-export function renderSchemaCard(card: SchemaCard): string {
+export function renderSchemaCard(card: SchemaCard, portal: string): string {
   const categoryList = card.categories
     .map((term) => `${term.label} (\`${term.iri.split("/").pop()}\`)`)
     .join(", ");
@@ -401,7 +401,7 @@ export function renderSchemaCard(card: SchemaCard): string {
     )
     .join("\n\n");
 
-  return `# AgroPortal SPARQL schema card
+  return `# ${portal} SPARQL schema card
 
 ${card.ontologyCount} ontologies, ${card.submissionCount} submissions
 (${card.activeSubmissionCount} not archived).

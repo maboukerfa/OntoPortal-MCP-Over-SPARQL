@@ -13,7 +13,8 @@
 import { Catalog } from "../src/catalog/catalog.js";
 import { QueryService } from "../src/catalog/execution.js";
 import { buildSchemaCard, renderSchemaCard } from "../src/catalog/introspect.js";
-import { AGROPORTAL_ENDPOINT, prefixBlock } from "../src/catalog/vocabulary.js";
+import { portalFromEnv } from "../src/catalog/portal.js";
+import { prefixBlock } from "../src/catalog/vocabulary.js";
 import { GuardVerdict, guard } from "../src/guards/guards.js";
 import { EXAMPLES } from "../src/mcp/guidance.js";
 import { QueryOutcome, SparqlEndpoint } from "../src/sparql/endpoint.js";
@@ -303,10 +304,10 @@ async function idiomTests(service: QueryService, catalog: Catalog): Promise<void
  * batch of mappings was made; the term pairs and the totals per ontology pair
  * live in two other graphs, and without them mapping questions are unanswerable.
  */
-async function cardTests(endpoint: SparqlEndpoint): Promise<void> {
+async function cardTests(endpoint: SparqlEndpoint, portal: string): Promise<void> {
   process.stdout.write("\nschema card\n");
 
-  const card = renderSchemaCard(await buildSchemaCard(endpoint));
+  const card = renderSchemaCard(await buildSchemaCard(endpoint), portal);
   check("card covers the mapped term pairs", card.includes("meta:class_urns"));
   check("card covers the mapping totals per ontology pair", card.includes("meta:pair_count"));
   check(
@@ -316,15 +317,14 @@ async function cardTests(endpoint: SparqlEndpoint): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const endpoint = new SparqlEndpoint({
-    url: process.env.AGROPORTAL_SPARQL_URL ?? AGROPORTAL_ENDPOINT,
-  });
+  const portal = portalFromEnv();
+  const endpoint = new SparqlEndpoint({ url: portal.sparqlUrl });
 
   guardTests();
   await catalogTests(new Catalog(endpoint), endpoint);
   await executionTests(new QueryService(endpoint));
   await idiomTests(new QueryService(endpoint), new Catalog(endpoint));
-  await cardTests(endpoint);
+  await cardTests(endpoint, portal.name);
 
   process.stdout.write(failures === 0 ? "\nall passed\n" : `\n${failures} failed\n`);
   process.exit(failures === 0 ? 0 : 1);

@@ -51,6 +51,7 @@ export class CardService {
   /** `locateSnapshot` may throw when there is no snapshot; it only runs once the endpoint has failed. */
   constructor(
     private readonly endpoint: SparqlEndpoint,
+    private readonly portal: string,
     private readonly locateSnapshot: () => string,
   ) {}
 
@@ -97,7 +98,7 @@ export class CardService {
       return null;
     }
 
-    const markdown = renderSchemaCard(card);
+    const markdown = renderSchemaCard(card, this.portal);
     this.cached = { markdown, builtAt: Date.now() };
     return markdown;
   }

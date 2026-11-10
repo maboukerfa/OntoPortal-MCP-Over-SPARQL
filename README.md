@@ -1,9 +1,10 @@
-# agroportal-sparql-mcp
+# ontoportal-sparql-mcp
 
 An [MCP](https://modelcontextprotocol.io) server that lets any MCP host —
 Claude Code, Claude Desktop, an IDE — query the SPARQL endpoint of
-[AgroPortal](https://agroportal.eu), the vocabulary and ontology repository
-for agronomy and related domains, without hallucinating its vocabulary.
+an [OntoPortal](https://ontoportal.org) deployment without hallucinating its
+vocabulary. It defaults to [AgroPortal](https://agroportal.eu); any portal
+built on OntoPortal shares the same metadata model.
 
 ## Example
 
@@ -23,7 +24,7 @@ Nothing about it looks wrong. That gap is what this server exists to close.
 ## Requirements
 
 - Node.js 20 or later
-- Network access to `https://sparql.agroportal.eu/sparql`
+- Network access to the portal's SPARQL endpoint
 
 ## Install
 
@@ -35,7 +36,7 @@ npm run build
 Register with Claude Code:
 
 ```bash
-claude mcp add agroportal -s user -- \
+claude mcp add ontoportal -s user -- \
   node /absolute/path/to/sparql_mcp/dist/src/mcp/server.js
 ```
 
@@ -48,7 +49,7 @@ Or in `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "agroportal": {
+    "ontoportal": {
       "command": "node",
       "args": ["/absolute/path/to/sparql_mcp/dist/src/mcp/server.js"]
     }
@@ -60,17 +61,25 @@ Or in `claude_desktop_config.json`:
 
 | variable | default | purpose |
 |---|---|---|
-| `AGROPORTAL_SPARQL_URL` | `https://sparql.agroportal.eu/sparql` | Query another OntoPortal deployment. |
+| `PORTAL_NAME` | `AgroPortal` | What tool descriptions call the portal. |
+| `PORTAL_SPARQL_URL` | `https://sparql.agroportal.eu/sparql` | Query another OntoPortal deployment. |
 
 The server reads no `.env` file. Set variables in the host's `env` block:
 
 ```json
-"agroportal": {
+"ecoportal": {
   "command": "node",
   "args": ["/absolute/path/to/sparql_mcp/dist/src/mcp/server.js"],
-  "env": { "AGROPORTAL_SPARQL_URL": "https://example.org/sparql" }
+  "env": {
+    "PORTAL_NAME": "EcoPortal",
+    "PORTAL_SPARQL_URL": "https://example.org/sparql"
+  }
 }
 ```
+
+Register one server per portal. The worked examples and the snapshot card
+were verified on AgroPortal; regenerate the snapshot against your own
+endpoint (`npm run schema:gen`).
 
 ### Over HTTP
 
@@ -78,7 +87,7 @@ For hosts that connect to a running server instead of launching one:
 
 ```bash
 node dist/src/mcp/server.js --transport http        # http://127.0.0.1:8080/mcp
-claude mcp add -s user --transport http agroportal http://127.0.0.1:8080/mcp
+claude mcp add -s user --transport http ontoportal http://127.0.0.1:8080/mcp
 ```
 
 `--host` and `--port` move it. It binds to loopback unless told otherwise and
@@ -97,10 +106,10 @@ Browser requests from origins other than this machine get 403.
 | `run_sparql` | Guarded read-only execution. Returns rows, or a failure with repair advice. |
 | `list_terms` | The subject categories or groups, with IRIs. |
 
-**Resources** — `agroportal://schema-card`, `agroportal://examples`, for hosts
+**Resources** — `ontoportal://schema-card`, `ontoportal://examples`, for hosts
 that attach context without a tool call.
 
-**Prompt** — `query_agroportal(question)`, a ready-made framing with the card,
+**Prompt** — `query_portal(question)`, a ready-made framing with the card,
 idioms and prefixes preloaded.
 
 ## Guardrails
@@ -140,7 +149,7 @@ grounding, guardrails and a repair loop — not by nearest-neighbour search.
 
 ### What the card covers
 
-AgroPortal is not one flat metadata model. It is a small graph of record types
+An OntoPortal deployment is not one flat metadata model. It is a small graph of record types
 that reference each other, and most real questions cross two or three of them.
 
 | graph | holds |
@@ -162,12 +171,12 @@ that reference each other, and most real questions cross two or three of them.
 **Two of these hide outside the portal's namespace.** Agents live in
 `<http://xmlns.com/foaf/0.1/Agent>` and their identifiers in
 `<http://www.w3.org/ns/adms#Identifier>` — named for the vocabulary class they
-hold rather than for AgroPortal. Anything that enumerates graphs by namespace
+hold rather than for the portal. Anything that enumerates graphs by namespace
 prefix misses them silently.
 
 The graph list in `src/catalog/introspect.ts` is therefore explicit and
 hand-maintained, not discovered: enumerating graphs on this endpoint trips the
-ANYTIME budget anyway. **When AgroPortal adds a graph, add it to `PROFILED`.**
+ANYTIME budget anyway. **When OntoPortal adds a graph, add it to `PROFILED`.**
 
 The card is generated, not written. The server builds it from the live
 endpoint on first request and keeps it for an hour, so its counts are current.
@@ -199,7 +208,7 @@ duckdb -c "SELECT tool, outcome, count(*) n, quantile_cont(ms, .5) p50,
 No IP address or account is logged, but queries show what someone is
 researching: keep them no longer than you need.
 
-## Known data quirks
+## Known data quirks (AgroPortal)
 
 **Ontology size never comes from `omv:numberOf*`.** Most current submissions
 omit those fields even though their archived predecessors carry them, so a query
@@ -243,7 +252,7 @@ directory, because that is what a host does — it catches the classic MCP bug
 where a data file resolves against cwd and silently vanishes in production.
 
 Regenerate the snapshot now and then and commit the diff — it doubles as a
-readable changelog of AgroPortal's metadata. The generator refuses to write a
+readable changelog of the portal's metadata. The generator refuses to write a
 card with an empty graph, so a network failure leaves the last good one in
 place.
 

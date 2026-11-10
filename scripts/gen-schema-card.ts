@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { buildSchemaCard, emptyGraphs, renderSchemaCard } from "../src/catalog/introspect.js";
-import { AGROPORTAL_ENDPOINT } from "../src/catalog/vocabulary.js";
+import { portalFromEnv } from "../src/catalog/portal.js";
 import { SparqlEndpoint } from "../src/sparql/endpoint.js";
 
 const OUTPUT = resolve("schema/schema-card.md");
@@ -23,8 +23,9 @@ const OUTPUT = resolve("schema/schema-card.md");
 const INTROSPECTION_TIMEOUT_MS = 120_000;
 
 async function main(): Promise<void> {
+  const portal = portalFromEnv();
   const endpoint = new SparqlEndpoint({
-    url: process.env.AGROPORTAL_SPARQL_URL ?? AGROPORTAL_ENDPOINT,
+    url: portal.sparqlUrl,
     timeoutMs: INTROSPECTION_TIMEOUT_MS,
   });
 
@@ -42,7 +43,7 @@ async function main(): Promise<void> {
   }
 
   mkdirSync(dirname(OUTPUT), { recursive: true });
-  writeFileSync(OUTPUT, renderSchemaCard(card), "utf8");
+  writeFileSync(OUTPUT, renderSchemaCard(card, portal.name), "utf8");
 
   const totalPredicates = card.graphs.reduce(
     (sum, graph) => sum + graph.predicates.length,

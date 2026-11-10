@@ -44,7 +44,7 @@ if (!Object.values(Transport).includes(TRANSPORT)) {
   throw new Error(`--transport must be one of ${Object.values(Transport).join(", ")}`);
 }
 
-/** The server's startup line: "agroportal-sparql 0.1.0 ready on http://127.0.0.1:54321/mcp". */
+/** The server's startup line: "ontoportal-sparql 0.1.0 ready on http://127.0.0.1:54321/mcp". */
 const READY_URL = /ready on (http:\S+)/;
 
 /** An HTTP server outlives its client, unlike a stdio one; stop them all on exit. */
@@ -189,11 +189,11 @@ async function main(): Promise<void> {
   );
 
   const { prompts } = await client.listPrompts();
-  check("exposes the query_agroportal prompt", prompts.some((p) => p.name === "query_agroportal"));
+  check("exposes the query_portal prompt", prompts.some((p) => p.name === "query_portal"));
 
   process.stdout.write("\nschema card (launched from a foreign cwd)\n");
 
-  const cardResource = await client.readResource({ uri: "agroportal://schema-card" });
+  const cardResource = await client.readResource({ uri: "ontoportal://schema-card" });
   // Resource contents are a text|blob union — narrow rather than cast.
   const cardEntry = cardResource.contents[0];
   const cardText =
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
   // Endpoint down: the snapshot is the only card left, and it must still
   // resolve from a foreign cwd.
   const { client: offline, events: offlineEvents } = await launch({
-    AGROPORTAL_SPARQL_URL: DEAD_ENDPOINT,
+    PORTAL_SPARQL_URL: DEAD_ENDPOINT,
   });
   const offlineCard = firstText(
     (await offline.callTool({ name: "get_schema_card", arguments: {} })).content,
@@ -331,7 +331,7 @@ async function main(): Promise<void> {
   process.stdout.write("\nprompt\n");
 
   const prompt = await client.getPrompt({
-    name: "query_agroportal",
+    name: "query_portal",
     arguments: { question: "Which ontologies cover soil?" },
   });
   const promptText = firstText(prompt.messages.map((message) => message.content));

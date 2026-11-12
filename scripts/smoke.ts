@@ -209,6 +209,15 @@ async function catalogTests(catalog: Catalog, endpoint: SparqlEndpoint): Promise
   const exact = matches.find((match) => match.acronym === "AGROVOC");
   check("resolves 'agrovoc' to AGROVOC", Boolean(exact), exact?.iri ?? "no match");
 
+  // "PO" is a substring of more than ten acronyms that sort before it
+  // (AGROVOC-PT-BR, BIPOM, C3PO...): the exact one must survive the cut.
+  const po = await catalog.resolve("PO");
+  check(
+    "resolves 'PO' to PO despite many substring matches",
+    po.matches.some((match) => match.acronym === "PO") && po.currentSubmission !== null,
+    po.currentSubmission?.contentGraph ?? po.matches.map((match) => match.acronym).join(", "),
+  );
+
   const submission = await catalog.latestSubmission("AGROVOC");
   check(
     "finds AGROVOC current submission",

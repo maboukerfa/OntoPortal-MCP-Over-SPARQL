@@ -79,6 +79,10 @@ export class Catalog {
   /**
    * Resolve free text to ontologies. Matches acronym or display name,
    * case-insensitively, so "agrovoc", "AGROVOC" and "Agrovoc Thesaurus" all land.
+   *
+   * An exact acronym sorts first: "PO" is a substring of more than ten
+   * acronyms that sort before it alphabetically (BIPOM, C3PO...), and the cut
+   * dropped PO itself.
    */
   async findOntology(term: string): Promise<OntologyRef[]> {
     const needle = literal(term.trim());
@@ -94,7 +98,9 @@ export class Catalog {
             CONTAINS(LCASE(STR(?name)), LCASE("${needle}"))
           )
         }
-      } ORDER BY ?acronym LIMIT ${MAX_MATCHES}
+      }
+      ORDER BY (IF(LCASE(STR(?acronym)) = LCASE("${needle}"), 0, 1)) ?acronym
+      LIMIT ${MAX_MATCHES}
     `);
 
     return rowsOf(result).map((row) => ({

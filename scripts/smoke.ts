@@ -240,7 +240,10 @@ async function catalogTests(catalog: Catalog, endpoint: SparqlEndpoint): Promise
   check("lists groups", groups.length > 5, `${groups.length} found`);
 }
 
-async function executionTests(service: QueryService): Promise<void> {
+/** A client deadline every request misses, to reach the driver's abort path. */
+const MISSED_DEADLINE_MS = 1;
+
+async function executionTests(service: QueryService, impatient: QueryService): Promise<void> {
   process.stdout.write("\nexecution\n");
 
   const ok = await service.run(`
@@ -316,6 +319,19 @@ async function executionTests(service: QueryService): Promise<void> {
     "a run-time type error reads as invalid, not unavailable",
     wrongType.outcome === QueryOutcome.Invalid,
     `${wrongType.outcome}: ${wrongType.advice?.slice(0, 120) ?? ""}`,
+  );
+
+  // The driver's own deadline is the query's cost, not an outage: read as
+  // unavailable, it tells the model the endpoint is down and not to retry.
+  const outlasted = await impatient.run(`
+    PREFIX meta: <http://data.bioontology.org/metadata/>
+    PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
+    SELECT ?acronym WHERE { GRAPH meta:Ontology { ?ont omv:acronym ?acronym } } LIMIT 1
+  `);
+  check(
+    "a query that outlasts the client deadline reads as timeout, not unavailable",
+    outlasted.outcome === QueryOutcome.Timeout,
+    `${outlasted.outcome}: ${outlasted.advice?.slice(0, 80) ?? ""}`,
   );
 }
 
@@ -594,7 +610,10 @@ async function main(): Promise<void> {
   guardTests();
   predicateTests();
   await catalogTests(new Catalog(endpoint, links), endpoint);
-  await executionTests(new QueryService(endpoint, cards, links));
+  await executionTests(
+    new QueryService(endpoint, cards, links),
+    new QueryService(new SparqlEndpoint({ url: portal.sparqlUrl, timeoutMs: MISSED_DEADLINE_MS }), cards, links),
+  );
   await idiomTests(new QueryService(endpoint, cards, links), new Catalog(endpoint, links));
   await cardTests(endpoint, portal.name);
   await examplePredicateTests(cards);

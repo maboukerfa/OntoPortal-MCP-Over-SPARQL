@@ -40,6 +40,12 @@ const SPARQL_JSON = "application/sparql-results+json";
 /** The endpoint is shared infrastructure; keep a client-side ceiling below its own. */
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+/**
+ * What fetch throws when our own deadline fires, before or during the body.
+ * That is a query too slow to finish, not an endpoint that cannot be reached.
+ */
+const DEADLINE_ERRORS = ["TimeoutError", "AbortError"];
+
 export enum QueryOutcome {
   /** Query ran and returned at least one row. */
   Ok = "ok",
@@ -47,9 +53,9 @@ export enum QueryOutcome {
   Empty = "empty",
   /** Virtuoso blamed the query: bad syntax, undefined prefix, a function given the wrong type. */
   Invalid = "invalid",
-  /** Too expensive: either the ANYTIME budget ran out or the cost estimator declined it. */
+  /** Too expensive: the ANYTIME budget ran out, the cost estimator declined it, or our deadline passed. */
   Timeout = "timeout",
-  /** Network failure, 5xx that is not a Virtuoso error, or client-side abort. */
+  /** Network failure, or a 5xx that is not a Virtuoso error. */
   Unavailable = "unavailable",
 }
 
@@ -112,17 +118,22 @@ export class SparqlEndpoint {
     const abort = AbortSignal.timeout(this.timeoutMs);
 
     let response: Response;
+    let body: string;
     try {
       response = await fetch(target, {
         headers: { Accept: SPARQL_JSON },
         signal: abort,
       });
+      body = await response.text();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const name = error instanceof Error ? error.name : "";
+
+      if (DEADLINE_ERRORS.includes(name)) {
+        return { outcome: QueryOutcome.Timeout, message: `no answer within ${this.timeoutMs / 1000} s` };
+      }
       return { outcome: QueryOutcome.Unavailable, message };
     }
-
-    const body = await response.text();
 
     if (response.status !== HTTP_OK) {
       return classifyError(body);

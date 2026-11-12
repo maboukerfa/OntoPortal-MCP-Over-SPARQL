@@ -38,9 +38,9 @@ const EMPTY_ADVICE =
   "the term translated (French, Spanish, ...) and drop any LANG() filter.";
 
 const TIMEOUT_ADVICE =
-  "The endpoint refused this query as too expensive — it either exhausted the " +
-  "ANYTIME budget or was declined up front by the cost estimator. The endpoint " +
-  "is healthy; the query is the problem. Scope it to a single GRAPH, put a more " +
+  "This query is too expensive — the endpoint exhausted its ANYTIME budget, its " +
+  "cost estimator declined it up front, or it ran past this server's wait for an " +
+  "answer. The endpoint is healthy; the query is the problem. Scope it to a single GRAPH, put a more " +
   "selective pattern first, drop any self-join over a large content graph, or " +
   "aggregate with COUNT instead of returning rows.";
 

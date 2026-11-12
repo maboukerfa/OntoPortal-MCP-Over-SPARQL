@@ -13,6 +13,7 @@ services:
       # Read from the shell or .env; unset falls back to AgroPortal.
       - PORTAL_NAME
       - PORTAL_SPARQL_URL
+      - PORTAL_UI_URL
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

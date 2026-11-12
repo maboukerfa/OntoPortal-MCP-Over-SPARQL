@@ -175,6 +175,19 @@ filter is dropped and the term tried in other languages.
 `;
 
 /**
+ * Answers should send the reader somewhere they can look. The metadata IRIs
+ * the model sees all point at data.bioontology.org, which answers a browser
+ * with 401, so the tools return the portal page beside each one.
+ */
+export function linkRule(portal: string): string {
+  return (
+    `Link every ontology, term, category, group or project you name to its ${portal} ` +
+    "page, taken from the portalUrl and links fields the tools return. Never link a " +
+    "data.bioontology.org IRI: it is an API address that refuses browsers."
+  );
+}
+
+/**
  * Compact orientation embedded in tool descriptions.
  *
  * Unlike a system prompt, an MCP server cannot count on the host injecting its
@@ -197,5 +210,6 @@ NOT dcterms:title or dcterms:creator, which do not exist on these records.
 ${portal} is multilingual: names, descriptions and labels come in English,
 French, Spanish and many more. Before saying something is not in ${portal},
 retry with the term translated and without any LANG() filter.
-Call get_schema_card for the full predicate list before writing a query.`;
+Call get_schema_card for the full predicate list before writing a query.
+${linkRule(portal)}`;
 }

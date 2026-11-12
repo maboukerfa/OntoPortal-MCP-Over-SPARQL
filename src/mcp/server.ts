@@ -30,10 +30,11 @@ import { z } from "zod";
 import { CardService } from "../catalog/card.js";
 import { Catalog } from "../catalog/catalog.js";
 import { QueryService } from "../catalog/execution.js";
+import { PortalLinks } from "../catalog/links.js";
 import { portalFromEnv } from "../catalog/portal.js";
 import { prefixBlock } from "../catalog/vocabulary.js";
 import { SparqlEndpoint } from "../sparql/endpoint.js";
-import { EXAMPLES, orientation } from "./guidance.js";
+import { EXAMPLES, linkRule, orientation } from "./guidance.js";
 import { serveHttp } from "./http.js";
 import { findSchemaCard } from "./paths.js";
 import { logged, watchSession } from "./usage.js";
@@ -85,10 +86,11 @@ function buildServices(): Services {
   const portal = portalFromEnv();
   const endpoint = new SparqlEndpoint({ url: portal.sparqlUrl });
   const cards = new CardService(endpoint, portal.name, findSchemaCard);
+  const links = new PortalLinks(endpoint, portal.uiUrl);
 
   return {
-    catalog: new Catalog(endpoint),
-    queries: new QueryService(endpoint, cards),
+    catalog: new Catalog(endpoint, links),
+    queries: new QueryService(endpoint, cards, links),
     cards,
     portal: portal.name,
   };
@@ -98,7 +100,12 @@ function buildServer(
   { catalog, queries, cards, portal }: Services,
   session: string,
 ): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  // Hosts that honour server instructions put them in the system prompt; the
+  // tool descriptions repeat the rule for those that do not.
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { instructions: linkRule(portal) },
+  );
 
   // --- Resources: for hosts that can attach context without a tool call ------
 
@@ -159,8 +166,8 @@ function buildServer(
     {
       title: "Resolve an ontology to its IRIs",
       description:
-        "Resolve an ontology name or acronym to its real IRI and the named graph " +
-        "holding its current content. Call this before writing any query that " +
+        "Resolve an ontology name or acronym to its real IRI, its portal page, and " +
+        "the named graph holding its current content. Call this before writing any query that " +
         "mentions a specific ontology — never construct these IRIs by guessing, " +
         "and never assume a submission number.",
       inputSchema: {
@@ -193,7 +200,8 @@ function buildServer(
       title: `Run SPARQL against ${portal}`,
       description:
         `Execute a read-only SPARQL query against the ${portal} endpoint and ` +
-        "return the rows. Rejects writes, unscoped patterns and predicates a " +
+        "return the rows, with the portal page of each ontology, category, group, " +
+        "project and term in them. Rejects writes, unscoped patterns and predicates a " +
         "metadata graph never uses, caps result size, " +
         "and reports errors, timeouts and empty results with advice on how to " +
         "repair the query — read that advice and call again rather than giving up." +
@@ -220,7 +228,7 @@ function buildServer(
     {
       title: "List categories or groups",
       description:
-        `List ${portal}'s subject categories or ontology groups with their IRIs. ` +
+        `List ${portal}'s subject categories or ontology groups with their IRIs and portal pages. ` +
         "Both are small closed vocabularies used to filter ontologies; category " +
         "and group values are IRIs, not strings.",
       inputSchema: {
@@ -267,6 +275,7 @@ function buildServer(
               `- ${portal} is multilingual. Before saying something is not available,`,
               "  retry with the term translated and without any LANG() filter.",
               "- Answer in prose with the figures you retrieved, then show the query.",
+              `- ${linkRule(portal)}`,
               "",
               "Prefixes:",
               "```sparql",

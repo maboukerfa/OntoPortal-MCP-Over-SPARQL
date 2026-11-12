@@ -70,7 +70,11 @@ export const OMV = {
   hasDomain: `${OMV_NS}hasDomain`,
   hasCreator: `${OMV_NS}hasCreator`,
   keywords: `${OMV_NS}keywords`,
+  hasOntologyLanguage: `${OMV_NS}hasOntologyLanguage`,
 } as const;
+
+/** A submission's format, on omv:hasOntologyLanguage: .../ontology_formats/SKOS, OWL, OBO, UMLS. */
+export const ONTOLOGY_FORMAT_NS = "http://data.bioontology.org/ontology_formats/";
 
 /**
  * A submission is superseded when it carries the ARCHIVED status.
@@ -95,6 +99,18 @@ export const SUBMISSION_STATUS_RDF = "http://data.bioontology.org/submission_sta
 
 /** Content graphs are per-submission: .../ontologies/{ACRONYM}/submissions/{ID} */
 export const CONTENT_GRAPH_PREFIX = "http://data.bioontology.org/ontologies/";
+
+/**
+ * Namespaces of the records the portal has a page for, each IRI ending in the
+ * record's acronym: .../categories/AGRI, .../projects/BDG. These IRIs are not
+ * pages themselves; data.bioontology.org is an API that refuses browsers.
+ */
+export const RECORD_NS = {
+  ontology: CONTENT_GRAPH_PREFIX,
+  category: "http://data.bioontology.org/categories/",
+  group: "http://data.bioontology.org/groups/",
+  project: "http://data.bioontology.org/projects/",
+} as const;
 
 export const PREFIXES: Record<string, string> = {
   meta: `${METADATA_NS}/`,

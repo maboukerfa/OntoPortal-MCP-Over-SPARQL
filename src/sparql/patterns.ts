@@ -1,5 +1,5 @@
 /**
- * Reads which predicates a query matches inside which named graph.
+ * Reads which named graphs a query reads, and which predicates it matches in each.
  *
  * The only module that sees the SPARQL parser's syntax tree. Everything above
  * works with (graph, predicate) pairs:
@@ -22,6 +22,13 @@ export interface GraphPredicate {
 }
 
 type Node = Record<string, unknown>;
+
+/** What one walk of the tree collects. */
+interface Shape {
+  /** Every IRI named in GRAPH <...>, whatever it holds. */
+  graphs: Set<string>;
+  uses: GraphPredicate[];
+}
 
 /**
  * Path operators under which every IRI must match: a/b, ^a, a+. Under a|b,
@@ -95,7 +102,7 @@ function visit(
   value: unknown,
   graph: string | null,
   prefixes: Record<string, string>,
-  found: GraphPredicate[],
+  found: Shape,
 ): void {
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -110,7 +117,11 @@ function visit(
 
   // GRAPH <g> { ... } reads <g> all the way down; GRAPH ?g reads no graph we can name.
   if (value.type === "pattern" && value.subType === "graph") {
-    visit(value.patterns, iriOf(value.name, prefixes), prefixes, found);
+    const name = iriOf(value.name, prefixes);
+    if (name) {
+      found.graphs.add(name);
+    }
+    visit(value.patterns, name, prefixes, found);
     return;
   }
 
@@ -121,7 +132,7 @@ function visit(
 
   if (value.type === "triple" && graph) {
     for (const predicate of pathIris(value.predicate, prefixes)) {
-      found.push({ graph, predicate });
+      found.uses.push({ graph, predicate });
     }
   }
 
@@ -130,15 +141,8 @@ function visit(
   }
 }
 
-/**
- * Every (graph, predicate) pair the query matches inside a GRAPH block.
- * Patterns outside GRAPH read the default graph and are left out. Null when
- * the query does not parse: Virtuoso reports that better than we would.
- */
-export function graphPredicates(
-  query: string,
-  defaultPrefixes: Record<string, string>,
-): GraphPredicate[] | null {
+/** Parse and walk once. Null when the query does not parse: Virtuoso reports that better than we would. */
+function shapeOf(query: string, defaultPrefixes: Record<string, string>): Shape | null {
   let ast: unknown;
   try {
     ast = parser.parse(query);
@@ -150,7 +154,24 @@ export function graphPredicates(
     return null;
   }
 
-  const found: GraphPredicate[] = [];
+  const found: Shape = { graphs: new Set(), uses: [] };
   visit(ast, null, prefixesOf(ast, defaultPrefixes), found);
   return found;
+}
+
+/**
+ * Every (graph, predicate) pair the query matches inside a GRAPH block.
+ * Patterns outside GRAPH read the default graph and are left out.
+ */
+export function graphPredicates(
+  query: string,
+  defaultPrefixes: Record<string, string>,
+): GraphPredicate[] | null {
+  return shapeOf(query, defaultPrefixes)?.uses ?? null;
+}
+
+/** Every graph the query names in GRAPH <...>, even one it reads with a variable predicate. */
+export function namedGraphs(query: string, defaultPrefixes: Record<string, string>): string[] | null {
+  const shape = shapeOf(query, defaultPrefixes);
+  return shape ? [...shape.graphs] : null;
 }

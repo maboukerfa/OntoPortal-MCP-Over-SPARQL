@@ -13,6 +13,7 @@
 import { CardService } from "../src/catalog/card.js";
 import { Catalog } from "../src/catalog/catalog.js";
 import { QueryService } from "../src/catalog/execution.js";
+import { PortalLinks } from "../src/catalog/links.js";
 import {
   buildSchemaCard,
   renderSchemaCard,
@@ -447,18 +448,124 @@ async function examplePredicateTests(cards: CardService): Promise<void> {
   }
 }
 
+/**
+ * Every link must open a page about what it names. The portal answers 200
+ * for a term or project it does not have, so a wrong link would not show up
+ * as a 404 anywhere: only these checks catch it.
+ */
+async function linkTests(
+  links: PortalLinks,
+  catalog: Catalog,
+  service: QueryService,
+  ui: string,
+): Promise<void> {
+  process.stdout.write("\nportal links\n");
+
+  const records: [string, string | null][] = [
+    ["http://data.bioontology.org/ontologies/AGROVOC", `${ui}/ontologies/AGROVOC`],
+    ["http://data.bioontology.org/categories/AGRI", `${ui}/ontologies?categories=AGRI`],
+    ["http://data.bioontology.org/groups/CROP", `${ui}/ontologies?groups=CROP`],
+    ["http://data.bioontology.org/projects/BDG", `${ui}/projects/BDG`],
+    ["http://data.bioontology.org/ontologies/AGROVOC/submissions/61", null],
+    ["http://aims.fao.org/aos/agrovoc/c_12332", null],
+  ];
+  for (const [iri, expected] of records) {
+    const page = links.forRecord(iri);
+    check(`links ${iri.split("/").slice(-2).join("/")}`, page === expected, page ?? "none");
+  }
+
+  const agrovoc = (await catalog.findOntology("agrovoc")).find((match) => match.acronym === "AGROVOC");
+  check(
+    "resolve_ontology hands back AGROVOC's page",
+    agrovoc?.portalUrl === `${ui}/ontologies/AGROVOC`,
+    agrovoc?.portalUrl ?? "none",
+  );
+
+  const categories = await catalog.listTerms("category");
+  check(
+    "list_terms hands back a page per category",
+    categories.length > 0 && categories.every((term) => term.portalUrl?.includes("?categories=")),
+  );
+
+  const ontologies = await service.run(`
+    PREFIX meta: <http://data.bioontology.org/metadata/>
+    PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
+    SELECT ?ont WHERE { GRAPH meta:Ontology { ?ont omv:acronym "AGROVOC" } }
+  `);
+  check(
+    "run_sparql links the ontology records in its rows",
+    ontologies.links?.["http://data.bioontology.org/ontologies/AGROVOC"] === `${ui}/ontologies/AGROVOC`,
+    JSON.stringify(ontologies.links ?? {}),
+  );
+
+  // GACS is SKOS: its concepts have pages. ?type binds skos:Concept, which does not.
+  const concepts = await service.run(`
+    SELECT ?c ?type WHERE {
+      GRAPH <http://data.bioontology.org/ontologies/GACS/submissions/2> {
+        ?c a ?type . FILTER (?type = <http://www.w3.org/2004/02/skos/core#Concept>)
+      }
+    } LIMIT 3
+  `);
+  const conceptIris = (concepts.rows ?? []).map((row) => row.c ?? "");
+  check(
+    "run_sparql links the concepts of a SKOS ontology",
+    conceptIris.length > 0 &&
+      conceptIris.every((iri) =>
+        concepts.links?.[iri] === `${ui}/ontologies/GACS?p=classes&conceptid=${encodeURIComponent(iri)}`,
+      ),
+    `${Object.keys(concepts.links ?? {}).length} links for ${conceptIris.length} rows`,
+  );
+  check(
+    "run_sparql does not link skos:Concept itself",
+    !concepts.links?.["http://www.w3.org/2004/02/skos/core#Concept"],
+  );
+
+  // An owl:Class in a SKOS ontology is not on its classes tab.
+  const gacsClass = await service.run(`
+    SELECT ?c WHERE {
+      GRAPH <http://data.bioontology.org/ontologies/GACS/submissions/2> {
+        VALUES ?c { <http://id.agrisemantics.org/vocab#Chemical> } ?c a ?type
+      }
+    }
+  `);
+  check(
+    "run_sparql does not link an owl:Class of a SKOS ontology",
+    gacsClass.rowCount !== undefined && gacsClass.rowCount > 0 && !gacsClass.links,
+    JSON.stringify(gacsClass.links ?? {}),
+  );
+
+  // NCBITAXON is OWL: its classes have pages. ?p binds the properties beside one, which have none.
+  const taxon = "http://purl.bioontology.org/ontology/NCBITAXON/4577";
+  const classes = await service.run(`
+    SELECT DISTINCT ?c ?p WHERE {
+      GRAPH <http://data.bioontology.org/ontologies/NCBITAXON/submissions/26> {
+        VALUES ?c { <${taxon}> } ?c ?p ?o
+      }
+    } LIMIT 5
+  `);
+  check(
+    "run_sparql links an OWL class and not its properties",
+    (classes.rowCount ?? 0) > 1 &&
+      classes.links?.[taxon] === `${ui}/ontologies/NCBITAXON?p=classes&conceptid=${encodeURIComponent(taxon)}` &&
+      Object.keys(classes.links).length === 1,
+    `${classes.rowCount ?? 0} rows, ${Object.keys(classes.links ?? {}).length} links`,
+  );
+}
+
 async function main(): Promise<void> {
   const portal = portalFromEnv();
   const endpoint = new SparqlEndpoint({ url: portal.sparqlUrl });
   const cards = new CardService(endpoint, portal.name, findSchemaCard);
+  const links = new PortalLinks(endpoint, portal.uiUrl);
 
   guardTests();
   predicateTests();
-  await catalogTests(new Catalog(endpoint), endpoint);
-  await executionTests(new QueryService(endpoint, cards));
-  await idiomTests(new QueryService(endpoint, cards), new Catalog(endpoint));
+  await catalogTests(new Catalog(endpoint, links), endpoint);
+  await executionTests(new QueryService(endpoint, cards, links));
+  await idiomTests(new QueryService(endpoint, cards, links), new Catalog(endpoint, links));
   await cardTests(endpoint, portal.name);
   await examplePredicateTests(cards);
+  await linkTests(links, new Catalog(endpoint, links), new QueryService(endpoint, cards, links), portal.uiUrl);
 
   process.stdout.write(failures === 0 ? "\nall passed\n" : `\n${failures} failed\n`);
   process.exit(failures === 0 ? 0 : 1);

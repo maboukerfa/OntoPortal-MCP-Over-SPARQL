@@ -10,14 +10,18 @@ export interface Portal {
   /** What the model calls the portal in tool descriptions, e.g. "AgroPortal". */
   name: string;
   sparqlUrl: string;
+  /** The web UI people browse, which answers get linked to. No trailing slash. */
+  uiUrl: string;
 }
 
 const DEFAULT_NAME = "AgroPortal";
 const DEFAULT_SPARQL_URL = "https://sparql.agroportal.eu/sparql";
+const DEFAULT_UI_URL = "https://agroportal.eu";
 
 export function portalFromEnv(): Portal {
   return {
     name: process.env.PORTAL_NAME ?? DEFAULT_NAME,
     sparqlUrl: process.env.PORTAL_SPARQL_URL ?? DEFAULT_SPARQL_URL,
+    uiUrl: (process.env.PORTAL_UI_URL ?? DEFAULT_UI_URL).replace(/\/+$/, ""),
   };
 }

@@ -12,6 +12,7 @@ import {
   SparqlEndpoint,
   type SparqlResult,
 } from "../sparql/endpoint.js";
+import type { PortalLinks } from "./links.js";
 import {
   CLASSES,
   GRAPHS,
@@ -27,6 +28,8 @@ export interface OntologyRef {
   acronym: string;
   name: string;
   iri: string;
+  /** The page a person can open; the IRI itself refuses browsers. */
+  portalUrl?: string;
 }
 
 export interface SubmissionRef {
@@ -68,7 +71,10 @@ function rowsOf(result: SparqlResult): Record<string, string>[] {
 }
 
 export class Catalog {
-  constructor(private readonly endpoint: SparqlEndpoint) {}
+  constructor(
+    private readonly endpoint: SparqlEndpoint,
+    private readonly links: PortalLinks,
+  ) {}
 
   /**
    * Resolve free text to ontologies. Matches acronym or display name,
@@ -95,6 +101,7 @@ export class Catalog {
       acronym: row.acronym ?? "",
       name: row.name ?? "",
       iri: row.ont ?? "",
+      portalUrl: this.links.forRecord(row.ont ?? "") ?? undefined,
     }));
   }
 
@@ -178,6 +185,7 @@ export class Catalog {
       acronym: row.acronym ?? "",
       name: row.name ?? "",
       iri: row.term ?? "",
+      portalUrl: this.links.forRecord(row.term ?? "") ?? undefined,
     }));
   }
 }

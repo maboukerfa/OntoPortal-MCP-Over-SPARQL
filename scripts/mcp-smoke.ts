@@ -181,6 +181,11 @@ async function main(): Promise<void> {
     ?.description?.includes("omv:name");
   check("run_sparql description carries the orientation", Boolean(orientationInDescription));
 
+  check(
+    "server instructions ask for portal links",
+    client.getInstructions()?.includes("Never link a data.bioontology.org IRI") === true,
+  );
+
   const { resources } = await client.listResources();
   check(
     "exposes both resources",
@@ -272,6 +277,10 @@ async function main(): Promise<void> {
   check(
     "resolve_ontology finds AGROVOC and its content graph",
     resolvedText.includes("AGROVOC") && resolvedText.includes("/submissions/"),
+  );
+  check(
+    "resolve_ontology hands back AGROVOC's portal page",
+    resolvedText.includes('"portalUrl": "https://agroportal.eu/ontologies/AGROVOC"'),
   );
 
   const good = await client.callTool({

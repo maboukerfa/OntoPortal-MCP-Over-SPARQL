@@ -63,6 +63,7 @@ Or in `claude_desktop_config.json`:
 |---|---|---|
 | `PORTAL_NAME` | `AgroPortal` | What tool descriptions call the portal. |
 | `PORTAL_SPARQL_URL` | `https://sparql.agroportal.eu/sparql` | Query another OntoPortal deployment. |
+| `PORTAL_UI_URL` | `https://agroportal.eu` | The web UI answers link to. |
 
 The server reads no `.env` file. Set variables in the host's `env` block:
 
@@ -72,7 +73,8 @@ The server reads no `.env` file. Set variables in the host's `env` block:
   "args": ["/absolute/path/to/sparql_mcp/dist/src/mcp/server.js"],
   "env": {
     "PORTAL_NAME": "EcoPortal",
-    "PORTAL_SPARQL_URL": "https://example.org/sparql"
+    "PORTAL_SPARQL_URL": "https://example.org/sparql",
+    "PORTAL_UI_URL": "https://example.org"
   }
 }
 ```
@@ -101,7 +103,7 @@ Browser requests from origins other than this machine get 403.
 docker compose up -d --build        # http://127.0.0.1:8080/mcp
 ```
 
-`PORTAL_NAME` and `PORTAL_SPARQL_URL` come from the shell or a `.env` file
+`PORTAL_NAME`, `PORTAL_SPARQL_URL` and `PORTAL_UI_URL` come from the shell or a `.env` file
 (see `.env.example`). Compose publishes on loopback only, for the reason
 above. The image also speaks stdio, for hosts that launch their own server:
 
@@ -117,9 +119,9 @@ claude mcp add -s user ontoportal -- \
 | name | purpose |
 |---|---|
 | `get_schema_card` | Every metadata graph with its predicates and usage counts, the graph layout, categories, groups, and worked idioms. Call once per conversation before writing SPARQL. |
-| `resolve_ontology` | Name or acronym → real IRI + the named graph holding its current content. |
-| `run_sparql` | Guarded read-only execution. Returns rows, or a failure with repair advice. |
-| `list_terms` | The subject categories or groups, with IRIs. |
+| `resolve_ontology` | Name or acronym → real IRI, portal page, and the named graph holding its current content. |
+| `run_sparql` | Guarded read-only execution. Returns rows with portal links, or a failure with repair advice. |
+| `list_terms` | The subject categories or groups, with IRIs and portal pages. |
 
 **Resources** — `ontoportal://schema-card`, `ontoportal://examples`, for hosts
 that attach context without a tool call.
@@ -127,7 +129,19 @@ that attach context without a tool call.
 **Prompt** — `query_portal(question)`, a ready-made framing with the card,
 idioms and prefixes preloaded.
 
-## Guardrails
+## Links
+
+Every metadata IRI points at `data.bioontology.org`, an API that answers a
+browser with 401. So the tools return the portal page beside each IRI
+(`portalUrl`, and `links` keyed by IRI in `run_sparql`), and the server
+instructions, tool descriptions and prompt ask the model to cite those.
+
+Ontologies, categories, groups and projects map straight to their pages. A
+term links only when the query read one content graph, which names its
+ontology, and only if that graph types it as what the portal's classes tab
+lists for the ontology's format: `skos:Concept` for SKOS, `owl:Class` for
+OWL, OBO and UMLS. The portal answers 200 for a term it does not have, so a
+wrong link would never show up as a 404.
 
 `run_sparql` rejects writes and unscoped triple patterns, caps `LIMIT` at 1000,
 appends a default `LIMIT 100` when one is missing, and truncates results to 50

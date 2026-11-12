@@ -10,6 +10,7 @@
 import { GuardVerdict, guard } from "../guards/guards.js";
 import { QueryOutcome, SparqlEndpoint } from "../sparql/endpoint.js";
 import type { CardService } from "./card.js";
+import type { PortalLinks } from "./links.js";
 import { misplacedPredicates } from "./predicates.js";
 
 /** Rows returned to the model. Beyond this it is summarising, not reading. */
@@ -23,6 +24,8 @@ export interface ExecutionReport {
   rows?: Record<string, string>[];
   rowCount?: number;
   truncated?: boolean;
+  /** Portal page per IRI in the rows shown, for the answer to link instead of the IRI. */
+  links?: Record<string, string>;
   advice?: string;
 }
 
@@ -45,6 +48,7 @@ export class QueryService {
   constructor(
     private readonly endpoint: SparqlEndpoint,
     private readonly cards: CardService,
+    private readonly links: PortalLinks,
   ) {}
 
   async run(query: string): Promise<ExecutionReport> {
@@ -102,6 +106,9 @@ export class QueryService {
     const all = SparqlEndpoint.plain(result.rows);
     const shown = all.slice(0, MAX_ROWS_TO_MODEL);
 
+    // Links for the rows the model sees, which are the only ones it can cite.
+    const links = await this.links.forRows(checked.query, result.rows.slice(0, MAX_ROWS_TO_MODEL));
+
     return {
       outcome: result.outcome,
       executed: checked.query,
@@ -109,6 +116,7 @@ export class QueryService {
       rows: shown,
       rowCount: all.length,
       truncated: shown.length < all.length,
+      links: Object.keys(links).length > 0 ? links : undefined,
     };
   }
 }

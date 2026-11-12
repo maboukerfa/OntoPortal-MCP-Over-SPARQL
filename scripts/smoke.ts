@@ -86,6 +86,30 @@ function guardTests(): void {
     'SELECT ?s WHERE { GRAPH <g> { ?s ?p "please delete this" } } LIMIT 10',
   );
   check("does not trip on DELETE inside a literal", literal.verdict === GuardVerdict.Allowed);
+
+  const comment = guard("SELECT ?s WHERE { GRAPH <g> { ?s ?p ?o } } # then DELETE it\nLIMIT 10");
+  check(
+    "does not trip on DELETE inside a comment",
+    comment.verdict === GuardVerdict.Allowed && !/LIMIT 100/.test(comment.query),
+  );
+
+  // A # inside an IRI or a string starts no comment: the LIMIT after it must
+  // still count, or a second LIMIT is appended and Virtuoso rejects the query.
+  const hashIri = guard(
+    "SELECT ?l WHERE { GRAPH <g> { ?c <http://www.w3.org/2004/02/skos/core#prefLabel> ?l } } LIMIT 3",
+  );
+  check(
+    "reads a LIMIT after an IRI holding #",
+    hashIri.verdict === GuardVerdict.Allowed && !/LIMIT 100/.test(hashIri.query),
+    hashIri.verdict === GuardVerdict.Allowed ? hashIri.query.slice(-20) : hashIri.reason,
+  );
+
+  const hashString = guard('SELECT ?l WHERE { GRAPH <g> { ?c ?p ?l FILTER (?l = "#1") } } LIMIT 3');
+  check(
+    "reads a LIMIT after a string holding #",
+    hashString.verdict === GuardVerdict.Allowed && !/LIMIT 100/.test(hashString.query),
+    hashString.verdict === GuardVerdict.Allowed ? hashString.query.slice(-20) : hashString.reason,
+  );
 }
 
 /** Two graphs, two predicates each: enough to tell "wrong graph" from "nowhere". */

@@ -33,15 +33,24 @@ export type GuardResult =
   | { verdict: GuardVerdict.Allowed; query: string }
   | { verdict: GuardVerdict.Rejected; reason: string };
 
+/**
+ * Strings, IRIs and comments, matched in one left-to-right pass so whichever
+ * comes first hides the others. Stripped one kind after another, the `#` in
+ * <...core#prefLabel> read as a comment and swallowed the LIMIT after it.
+ */
+const OPAQUE = /"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|<[^>\s]*>|#[^\n]*/g;
+
 /** Strip strings, IRIs and comments so keyword checks cannot be fooled by literals. */
 function skeleton(query: string): string {
-  return query
-    .replace(/#[^\n]*/g, " ")
-    .replace(/"""[\s\S]*?"""/g, '""')
-    .replace(/'''[\s\S]*?'''/g, "''")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
-    .replace(/<[^>\s]*>/g, "<>");
+  return query.replace(OPAQUE, (token) => {
+    if (token.startsWith("#")) {
+      return " ";
+    }
+    if (token.startsWith("<")) {
+      return "<>";
+    }
+    return token.startsWith("'") ? "''" : '""';
+  });
 }
 
 function hasWriteVerb(bare: string): string | null {

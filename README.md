@@ -137,11 +137,13 @@ browser with 401. So the tools return the portal page beside each IRI
 instructions, tool descriptions and prompt ask the model to cite those.
 
 Ontologies, categories, groups and projects map straight to their pages. A
-term links only when the query read one content graph, which names its
-ontology, and only if that graph types it as what the portal's classes tab
-lists for the ontology's format: `skos:Concept` for SKOS, `owl:Class` for
-OWL, OBO and UMLS. The portal answers 200 for a term it does not have, so a
-wrong link would never show up as a 404.
+term links when its row names one content graph, which names its ontology:
+the query reads a single content graph, or a `GRAPH ?g` column binds it, as
+in a search across every ontology. A class imported into several ontologies
+gets a list of pages, one per ontology. The term must also be what the
+portal's classes tab lists for that ontology's format: `skos:Concept` for
+SKOS, `owl:Class` for OWL, OBO and UMLS. The portal answers 200 for a term it
+does not have, so a wrong link would never show up as a 404.
 
 `run_sparql` rejects writes and unscoped triple patterns, caps `LIMIT` at 1000,
 appends a default `LIMIT 100` when one is missing, and truncates results to 50

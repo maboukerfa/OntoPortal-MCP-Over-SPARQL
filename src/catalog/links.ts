@@ -30,7 +30,7 @@ import {
   SparqlEndpoint,
   type SparqlBinding,
 } from "../sparql/endpoint.js";
-import { namedGraphs } from "../sparql/patterns.js";
+import { graphsOf } from "../sparql/patterns.js";
 import {
   CONTENT_GRAPH_PREFIX,
   GRAPHS,
@@ -63,7 +63,7 @@ export class PortalLinks {
   private readonly pages: { namespace: string; page: (acronym: string) => string }[];
 
   /** Content graph → its term type. A submission's format never changes. */
-  private readonly termTypes = new Map<string, string | null>();
+  private readonly termTypeOf = new Map<string, string | null>();
 
   constructor(
     private readonly endpoint: SparqlEndpoint,
@@ -89,109 +89,176 @@ export class PortalLinks {
   }
 
   /**
-   * Pages for the IRIs in result rows, keyed by IRI. Records always link.
-   * Terms link when the query read exactly one content graph, which names
-   * their ontology, and only once that graph confirms they are terms.
+   * Pages for the IRIs in result rows, keyed by IRI. Records always link. A
+   * term links when its row names one content graph, which names its
+   * ontology, and only once that graph confirms it is a term. The row names
+   * it when the query reads a single content graph, or binds it in a
+   * GRAPH ?g column:
+   *
+   *   GRAPH <.../AGROVOC/submissions/61> { ... }   every row: AGROVOC
+   *   GRAPH ?g { ... }   each row: whichever ontology its ?g holds
+   *
+   * A class imported into several ontologies gets a page in each.
    */
-  async forRows(query: string, rows: SparqlBinding[]): Promise<Record<string, string>> {
-    const iris = new Set<string>();
+  async forRows(query: string, rows: SparqlBinding[]): Promise<PortalLinkMap> {
+    const graphs = graphsOf(query, PREFIXES);
+    const named = soleContentGraph(graphs?.iris ?? []);
+    const variables = graphs?.variables ?? [];
+
+    const links: PortalLinkMap = {};
+    const candidates: Candidate[] = [];
+
     for (const row of rows) {
-      for (const cell of Object.values(row)) {
-        if (cell.type === "uri") {
-          iris.add(cell.value);
+      const graph = rowGraph(row, named, variables);
+
+      for (const [name, cell] of Object.entries(row)) {
+        // The ?g column is a submission, not something the answer names.
+        if (cell.type !== "uri" || variables.includes(name)) {
+          continue;
+        }
+
+        const page = this.forRecord(cell.value);
+        if (page) {
+          addLink(links, cell.value, page);
+          continue;
+        }
+
+        if (graph) {
+          candidates.push({ graph, iri: cell.value });
         }
       }
     }
 
-    const links: Record<string, string> = {};
-    const candidates: string[] = [];
-    for (const iri of iris) {
-      const page = this.forRecord(iri);
-      if (page) {
-        links[iri] = page;
-        continue;
-      }
-      candidates.push(iri);
-    }
-
-    const content = this.contentGraph(query);
-    if (!content || candidates.length === 0) {
-      return links;
-    }
-
-    for (const term of await this.termsIn(content.graph, candidates)) {
-      links[term] =
-        `${this.uiUrl}/ontologies/${encodeURIComponent(content.acronym)}` +
-        `?p=classes&conceptid=${encodeURIComponent(term)}`;
+    for (const term of await this.confirmed(candidates)) {
+      addLink(links, term.iri, this.termPage(term));
     }
     return links;
   }
 
-  /** The one content graph the query reads, with its ontology's acronym; null for none or several. */
-  private contentGraph(query: string): { graph: string; acronym: string } | null {
-    const graphs = (namedGraphs(query, PREFIXES) ?? []).filter(
-      (graph) => graph.startsWith(CONTENT_GRAPH_PREFIX) && graph.includes(SUBMISSION_PATH),
+  private termPage({ graph, iri }: Candidate): string {
+    const acronym = graph.slice(CONTENT_GRAPH_PREFIX.length).split(SUBMISSION_PATH)[0] ?? "";
+    return (
+      `${this.uiUrl}/ontologies/${encodeURIComponent(acronym)}` +
+      `?p=classes&conceptid=${encodeURIComponent(iri)}`
     );
-
-    const [graph] = graphs;
-    if (!graph || new Set(graphs).size > 1) {
-      return null;
-    }
-
-    const acronym = graph.slice(CONTENT_GRAPH_PREFIX.length).split(SUBMISSION_PATH)[0];
-    return acronym ? { graph, acronym } : null;
   }
 
-  /** The candidates the graph types as its format's term type. A failed check links none. */
-  private async termsIn(graph: string, candidates: string[]): Promise<string[]> {
-    const type = await this.termType(graph);
-    if (!type) {
+  /** The candidates their graph types as its format's term type. A failed check confirms none. */
+  private async confirmed(candidates: Candidate[]): Promise<Candidate[]> {
+    const unique = new Map(
+      candidates
+        .filter((candidate) => !UNSAFE_IRI.test(candidate.iri))
+        .map((candidate) => [`${candidate.graph} ${candidate.iri}`, candidate]),
+    );
+    if (unique.size === 0) {
       return [];
     }
 
-    const values = candidates
-      .filter((iri) => !UNSAFE_IRI.test(iri))
-      .map((iri) => `<${iri}>`)
-      .join(" ");
+    const types = await this.termTypes([...new Set([...unique.values()].map((c) => c.graph))]);
+    const checkable = [...unique.values()].filter((candidate) => types.get(candidate.graph));
+    if (checkable.length === 0) {
+      return [];
+    }
 
+    // All the types of every pair at once; the format decides which one counts.
+    const pairs = checkable.map(({ graph, iri }) => `(<${graph}> <${iri}>)`).join(" ");
     const result = await this.endpoint.select(`
-      SELECT DISTINCT ?term WHERE {
-        GRAPH <${graph}> { VALUES ?term { ${values} } ?term a <${type}> }
+      SELECT DISTINCT ?g ?term ?type WHERE {
+        VALUES (?g ?term) { ${pairs} }
+        GRAPH ?g { ?term a ?type }
       }
     `);
 
     if (result.outcome !== QueryOutcome.Ok) {
       return [];
     }
-    return SparqlEndpoint.plain(result.rows).flatMap((row) => (row.term ? [row.term] : []));
+
+    return SparqlEndpoint.plain(result.rows).flatMap((row) => {
+      if (!row.g || !row.term || types.get(row.g) !== row.type) {
+        return [];
+      }
+      return [{ graph: row.g, iri: row.term }];
+    });
   }
 
   /**
-   * What the classes tab lists for this submission's format, or null for an
-   * unknown format. The content graph IRI is also the submission's, which
-   * carries the format. Looked up apart from the terms: joined in one query,
-   * the two trip Virtuoso's optimiser (SQ156).
+   * What the classes tab lists for each submission's format, or null for an
+   * unknown one. A content graph IRI is also its submission's, which carries
+   * the format. Looked up apart from the terms: joined in one query, the two
+   * trip Virtuoso's optimiser (SQ156).
    */
-  private async termType(graph: string): Promise<string | null> {
-    const cached = this.termTypes.get(graph);
-    if (cached !== undefined) {
-      return cached;
+  private async termTypes(graphs: string[]): Promise<Map<string, string | null>> {
+    const missing = graphs.filter((graph) => !this.termTypeOf.has(graph));
+
+    if (missing.length > 0) {
+      const result = await this.endpoint.select(`
+        SELECT ?g ?format WHERE {
+          VALUES ?g { ${missing.map((graph) => `<${graph}>`).join(" ")} }
+          GRAPH <${GRAPHS.submission}> { ?g <${OMV.hasOntologyLanguage}> ?format }
+        }
+      `);
+
+      // An outage is not an answer: leave them uncached so the next call asks again.
+      if (result.outcome === QueryOutcome.Ok || result.outcome === QueryOutcome.Empty) {
+        const formats = new Map(
+          SparqlEndpoint.plain(result.rows).map((row) => [row.g ?? "", row.format ?? ""]),
+        );
+        for (const graph of missing) {
+          const format = (formats.get(graph) ?? "").slice(ONTOLOGY_FORMAT_NS.length);
+          this.termTypeOf.set(graph, TERM_TYPE_BY_FORMAT[format] ?? null);
+        }
+      }
     }
 
-    const result = await this.endpoint.select(`
-      SELECT ?format WHERE {
-        GRAPH <${GRAPHS.submission}> { <${graph}> <${OMV.hasOntologyLanguage}> ?format }
-      } LIMIT 1
-    `);
+    return new Map(graphs.map((graph) => [graph, this.termTypeOf.get(graph) ?? null]));
+  }
+}
 
-    // An outage is not an answer: leave it uncached so the next call asks again.
-    if (result.outcome !== QueryOutcome.Ok && result.outcome !== QueryOutcome.Empty) {
-      return null;
+/** A portal page per IRI; a list when the IRI is a class in several ontologies. */
+export type PortalLinkMap = Record<string, string | string[]>;
+
+/** An IRI from a row, and the content graph that row read. */
+interface Candidate {
+  graph: string;
+  iri: string;
+}
+
+function isContentGraph(iri: string): boolean {
+  return iri.startsWith(CONTENT_GRAPH_PREFIX) && iri.includes(SUBMISSION_PATH) && !UNSAFE_IRI.test(iri);
+}
+
+/** The one content graph among the query's GRAPH <...> IRIs; null for none or several. */
+function soleContentGraph(iris: string[]): string | null {
+  const content = new Set(iris.filter(isContentGraph));
+  const [graph] = content;
+  return graph && content.size === 1 ? graph : null;
+}
+
+/** The content graph a row read: the query's own, or its GRAPH ?g binding. Null when not exactly one. */
+function rowGraph(row: SparqlBinding, named: string | null, variables: string[]): string | null {
+  const graphs = new Set(named ? [named] : []);
+
+  for (const variable of variables) {
+    const cell = row[variable];
+    if (cell?.type === "uri" && isContentGraph(cell.value)) {
+      graphs.add(cell.value);
     }
+  }
 
-    const format = SparqlEndpoint.plain(result.rows)[0]?.format ?? "";
-    const type = TERM_TYPE_BY_FORMAT[format.slice(ONTOLOGY_FORMAT_NS.length)] ?? null;
-    this.termTypes.set(graph, type);
-    return type;
+  const [graph] = graphs;
+  return graph && graphs.size === 1 ? graph : null;
+}
+
+/** Add a page; an IRI met in several ontologies keeps one page per ontology. */
+function addLink(links: PortalLinkMap, iri: string, page: string): void {
+  const known = links[iri];
+  if (known === undefined) {
+    links[iri] = page;
+    return;
+  }
+
+  const pages = [known].flat();
+  if (!pages.includes(page)) {
+    links[iri] = [...pages, page];
   }
 }

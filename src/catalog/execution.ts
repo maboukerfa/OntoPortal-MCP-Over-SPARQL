@@ -10,7 +10,7 @@
 import { GuardVerdict, guard } from "../guards/guards.js";
 import { QueryOutcome, SparqlEndpoint } from "../sparql/endpoint.js";
 import type { CardService } from "./card.js";
-import type { PortalLinks } from "./links.js";
+import type { PortalLinkMap, PortalLinks } from "./links.js";
 import { misplacedPredicates } from "./predicates.js";
 
 /** Rows returned to the model. Beyond this it is summarising, not reading. */
@@ -25,7 +25,7 @@ export interface ExecutionReport {
   rowCount?: number;
   truncated?: boolean;
   /** Portal page per IRI in the rows shown, for the answer to link instead of the IRI. */
-  links?: Record<string, string>;
+  links?: PortalLinkMap;
   advice?: string;
 }
 

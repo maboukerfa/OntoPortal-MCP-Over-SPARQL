@@ -23,10 +23,18 @@ export interface GraphPredicate {
 
 type Node = Record<string, unknown>;
 
+/** The graphs a query reads: named outright, or bound row by row. */
+export interface GraphNames {
+  /** Every IRI named in GRAPH <...>, whatever it holds. */
+  iris: string[];
+  /** Every variable in GRAPH ?v: each result row binds it to the graph it read. */
+  variables: string[];
+}
+
 /** What one walk of the tree collects. */
 interface Shape {
-  /** Every IRI named in GRAPH <...>, whatever it holds. */
   graphs: Set<string>;
+  variables: Set<string>;
   uses: GraphPredicate[];
 }
 
@@ -121,6 +129,9 @@ function visit(
     if (name) {
       found.graphs.add(name);
     }
+    if (isNode(value.name) && value.name.subType === "variable" && typeof value.name.value === "string") {
+      found.variables.add(value.name.value);
+    }
     visit(value.patterns, name, prefixes, found);
     return;
   }
@@ -154,7 +165,7 @@ function shapeOf(query: string, defaultPrefixes: Record<string, string>): Shape 
     return null;
   }
 
-  const found: Shape = { graphs: new Set(), uses: [] };
+  const found: Shape = { graphs: new Set(), variables: new Set(), uses: [] };
   visit(ast, null, prefixesOf(ast, defaultPrefixes), found);
   return found;
 }
@@ -170,8 +181,8 @@ export function graphPredicates(
   return shapeOf(query, defaultPrefixes)?.uses ?? null;
 }
 
-/** Every graph the query names in GRAPH <...>, even one it reads with a variable predicate. */
-export function namedGraphs(query: string, defaultPrefixes: Record<string, string>): string[] | null {
+/** The graphs the query reads, even with a variable predicate. */
+export function graphsOf(query: string, defaultPrefixes: Record<string, string>): GraphNames | null {
   const shape = shapeOf(query, defaultPrefixes);
-  return shape ? [...shape.graphs] : null;
+  return shape ? { iris: [...shape.graphs], variables: [...shape.variables] } : null;
 }

@@ -612,6 +612,39 @@ async function linkTests(
       Object.keys(classes.links).length === 1,
     `${classes.rowCount ?? 0} rows, ${Object.keys(classes.links ?? {}).length} links`,
   );
+
+  // A search over GRAPH ?g names no content graph: each row's ?g says which
+  // ontology its class came from. The OBO taxon sits in FoodOn and EFO alike,
+  // so it gets a page in each; AGROVOC's SKOS-XL label resource gets none.
+  const page = (acronym: string, iri: string) =>
+    `${ui}/ontologies/${acronym}?p=classes&conceptid=${encodeURIComponent(iri)}`;
+  const oboTaxon = "http://purl.obolibrary.org/obo/NCBITaxon_8019";
+  const agrovocConcept = "http://aims.fao.org/aos/agrovoc/c_26592";
+  const searched = await service.run(`
+    PREFIX meta: <http://data.bioontology.org/metadata/>
+    PREFIX status: <http://data.bioontology.org/submission_statuses/>
+    SELECT DISTINCT ?g ?c WHERE {
+      VALUES ?label { "Oncorhynchus kisutch" "Oncorhynchus kisutch"@la }
+      GRAPH ?g { ?c ?p ?label }
+      GRAPH meta:OntologySubmission {
+        ?g meta:submissionStatus status:RDF .
+        FILTER NOT EXISTS { ?g meta:submissionStatus status:ARCHIVED }
+      }
+    }
+  `);
+  const taxonPages = [searched.links?.[oboTaxon] ?? []].flat();
+  check(
+    "run_sparql links each row's class in the ontology its ?g names",
+    searched.links?.[agrovocConcept] === page("AGROVOC", agrovocConcept) &&
+      taxonPages.includes(page("FOODON", oboTaxon)) &&
+      taxonPages.includes(page("EFO", oboTaxon)),
+    `${searched.rowCount ?? 0} rows, ${Object.keys(searched.links ?? {}).length} links`,
+  );
+  check(
+    "run_sparql links neither the ?g column nor a SKOS-XL label",
+    !searched.links?.["http://data.bioontology.org/ontologies/AGROVOC/submissions/61"] &&
+      !searched.links?.["http://aims.fao.org/aos/agrovoc/xl_la_58208370"],
+  );
 }
 
 async function main(): Promise<void> {

@@ -172,6 +172,39 @@ The \`"en"\` filter is a choice, not a default. GACS tags its labels with 31
 languages; E-PHY has none tagged \`en\` — 51,592 labels carry no tag at all and
 36 are tagged \`fr\`. An empty result under one language says nothing until the
 filter is dropped and the term tried in other languages.
+
+### Classes by name, across every ontology
+
+\`\`\`sparql
+SELECT ?g ?c (SAMPLE(?label) AS ?name) WHERE {
+  GRAPH ?g {
+    ?c ?p ?label .
+    ?label bif:contains "'coho salmon' OR kisutch" .
+    FILTER (?p IN (rdfs:label, skos:prefLabel, skos:altLabel,
+      <http://www.geneontology.org/formats/oboInOwl#hasExactSynonym>))
+  }
+  GRAPH meta:OntologySubmission {
+    ?g meta:submissionStatus status:RDF .
+    FILTER NOT EXISTS { ?g meta:submissionStatus status:ARCHIVED }
+  }
+} GROUP BY ?g ?c
+LIMIT 100
+\`\`\`
+
+\`bif:contains\` is Virtuoso's full-text index, the one fast way to match text
+in every content graph at once: this answers in seconds, where \`CONTAINS\` or
+\`REGEX\` over \`GRAPH ?g\` must read every label. It matches whole words,
+ignoring case and language: \`coho\` finds "Coho salmon"@en and "saumon
+coho"@fr. Quote a phrase inside the string, join words with OR, and give a
+wildcard four leading letters: \`'"kisu*"'\`. A misspelt word finds nothing, so
+fix the user's spelling, and search the scientific name too: NCBITAXON names
+the fish only "Oncorhynchus kisutch".
+
+The FILTER keeps names. Without it, definitions and notes that mention the
+word crowd out the LIMIT, and SKOS-XL label resources (\`.../xl_en_...\`) come
+back instead of their concepts. \`?g\` says which ontology each row came from;
+an imported class shows up once per ontology that carries it (NCBITaxon_8019
+in FoodOn, EFO and PCSM).
 `;
 
 /**
@@ -211,5 +244,8 @@ ${portal} is multilingual: names, descriptions and labels come in English,
 French, Spanish and many more. Before saying something is not in ${portal},
 retry with the term translated and without any LANG() filter.
 Call get_schema_card for the full predicate list before writing a query.
+To find classes by name in every ontology, match words with the full-text index,
+GRAPH ?g { ?c ?p ?label . ?label bif:contains "word" }: CONTAINS or REGEX there
+reads every label. The card's last worked example shows the full query.
 ${linkRule(portal)}`;
 }

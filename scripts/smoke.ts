@@ -457,6 +457,19 @@ async function idiomTests(service: QueryService, catalog: Catalog): Promise<void
     contentGraph.outcome === QueryOutcome.Ok,
     contentGraph.rows?.[0]?.concepts ?? "no count",
   );
+
+  // The search idiom must reach both the vernacular and the scientific name,
+  // across ontologies, without a scan: AGROVOC tags "Coho salmon"@en while
+  // NCBITAXON carries only "Oncorhynchus kisutch".
+  const searched = await service.run(example("Classes by name, across every ontology"));
+  const graphs = new Set((searched.rows ?? []).map((row) => row.g ?? ""));
+  check(
+    "full-text idiom finds a class in every ontology that names it",
+    graphs.has("http://data.bioontology.org/ontologies/AGROVOC/submissions/61") &&
+      graphs.has("http://data.bioontology.org/ontologies/NCBITAXON/submissions/26") &&
+      graphs.size >= 10,
+    `${searched.outcome}: ${graphs.size} ontologies`,
+  );
 }
 
 /**

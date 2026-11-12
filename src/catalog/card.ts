@@ -17,13 +17,22 @@
  * A partial card is worse than an old one. The card says its predicate list
  * is complete, so a graph whose profile query failed would read as "nothing
  * here". Such a build is discarded and the snapshot served instead.
+ *
+ * profiles() hands the same build to the predicate check. The snapshot is
+ * Markdown only, so without a live build it returns null and the check is
+ * skipped rather than run against nothing.
  */
 
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import type { SparqlEndpoint } from "../sparql/endpoint.js";
-import { buildSchemaCard, emptyGraphs, renderSchemaCard } from "./introspect.js";
+import {
+  buildSchemaCard,
+  emptyGraphs,
+  renderSchemaCard,
+  type GraphProfile,
+} from "./introspect.js";
 
 /** One build serves a whole conversation, and counts stay within the hour. */
 const CARD_TTL_MS = 60 * 60 * 1000;
@@ -41,12 +50,13 @@ function log(message: string): void {
 
 interface CachedCard {
   markdown: string;
+  graphs: GraphProfile[];
   builtAt: number;
 }
 
 export class CardService {
   private cached: CachedCard | null = null;
-  private building: Promise<string | null> | null = null;
+  private building: Promise<CachedCard | null> | null = null;
 
   /** `locateSnapshot` may throw when there is no snapshot; it only runs once the endpoint has failed. */
   constructor(
@@ -57,8 +67,25 @@ export class CardService {
 
   /** The card as Markdown: live when the endpoint answers in time, the snapshot otherwise. */
   async current(): Promise<string> {
+    const live = await this.live();
+    if (live) {
+      return live.markdown;
+    }
+
+    log("no complete live build; serving the snapshot");
+    return `${SNAPSHOT_NOTE}\n\n${readFileSync(this.locateSnapshot(), "utf8")}`;
+  }
+
+  /** Every metadata graph with all its predicates, or null when no live build is available. */
+  async profiles(): Promise<GraphProfile[] | null> {
+    const live = await this.live();
+    return live?.graphs ?? null;
+  }
+
+  /** The cached build while fresh, else a new one if it lands before the deadline. */
+  private async live(): Promise<CachedCard | null> {
     if (this.cached && Date.now() - this.cached.builtAt < CARD_TTL_MS) {
-      return this.cached.markdown;
+      return this.cached;
     }
 
     // Race the build against the deadline, then cancel the deadline's timer.
@@ -67,16 +94,11 @@ export class CardService {
     const live = await Promise.race([this.build(), expired]);
     cancel.abort();
 
-    if (live) {
-      return live;
-    }
-
-    log("no complete live build; serving the snapshot");
-    return `${SNAPSHOT_NOTE}\n\n${readFileSync(this.locateSnapshot(), "utf8")}`;
+    return live;
   }
 
   /** One build at a time. A build that outlives the deadline still fills the cache for the next call. */
-  private build(): Promise<string | null> {
+  private build(): Promise<CachedCard | null> {
     this.building ??= this.introspect()
       .catch((error: unknown) => {
         log(`build failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -89,7 +111,7 @@ export class CardService {
     return this.building;
   }
 
-  private async introspect(): Promise<string | null> {
+  private async introspect(): Promise<CachedCard | null> {
     const card = await buildSchemaCard(this.endpoint);
 
     const empty = emptyGraphs(card);
@@ -99,7 +121,7 @@ export class CardService {
     }
 
     const markdown = renderSchemaCard(card, this.portal);
-    this.cached = { markdown, builtAt: Date.now() };
-    return markdown;
+    this.cached = { markdown, graphs: card.graphs, builtAt: Date.now() };
+    return this.cached;
   }
 }

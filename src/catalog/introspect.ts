@@ -30,7 +30,10 @@ import {
   compact,
 } from "./vocabulary.js";
 
-/** Predicates below this many uses are noise — one submitter's private field. */
+/**
+ * Predicates below this many uses are noise in the card — one submitter's
+ * private field. The predicate check still accepts them: they hold data.
+ */
 const MIN_PREDICATE_USES = 3;
 
 /** Content graphs listed in the card, as orientation rather than an inventory. */
@@ -204,7 +207,7 @@ async function profileGraph(
     subjects,
     predicates: rowsOf(predicates)
       .map((row) => ({ predicate: row.p ?? "", uses: Number(row.n ?? 0) }))
-      .filter((fact) => fact.predicate && fact.uses >= MIN_PREDICATE_USES),
+      .filter((fact) => fact.predicate),
   };
 }
 
@@ -352,7 +355,7 @@ export function emptyGraphs(card: SchemaCard): string[] {
 }
 
 function predicateTable(facts: PredicateFact[]): string {
-  const lines = facts.map(
+  const lines = facts.filter((fact) => fact.uses >= MIN_PREDICATE_USES).map(
     (fact) => `| \`${compact(fact.predicate)}\` | ${fact.uses} |`,
   );
   return ["| predicate | uses |", "|---|---|", ...lines].join("\n");

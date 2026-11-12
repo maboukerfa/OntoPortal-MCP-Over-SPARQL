@@ -84,11 +84,12 @@ interface Services {
 function buildServices(): Services {
   const portal = portalFromEnv();
   const endpoint = new SparqlEndpoint({ url: portal.sparqlUrl });
+  const cards = new CardService(endpoint, portal.name, findSchemaCard);
 
   return {
     catalog: new Catalog(endpoint),
-    queries: new QueryService(endpoint),
-    cards: new CardService(endpoint, portal.name, findSchemaCard),
+    queries: new QueryService(endpoint, cards),
+    cards,
     portal: portal.name,
   };
 }
@@ -192,7 +193,8 @@ function buildServer(
       title: `Run SPARQL against ${portal}`,
       description:
         `Execute a read-only SPARQL query against the ${portal} endpoint and ` +
-        "return the rows. Rejects writes and unscoped patterns, caps result size, " +
+        "return the rows. Rejects writes, unscoped patterns and predicates a " +
+        "metadata graph never uses, caps result size, " +
         "and reports errors, timeouts and empty results with advice on how to " +
         "repair the query — read that advice and call again rather than giving up." +
         "\n\n" +

@@ -305,7 +305,7 @@ async function main(): Promise<void> {
   });
   check("run_sparql refuses a write", writeAttempt.isError === true);
 
-  const empty = await client.callTool({
+  const hallucinated = await client.callTool({
     name: "run_sparql",
     arguments: {
       query: `
@@ -317,7 +317,23 @@ async function main(): Promise<void> {
     },
   });
   check(
-    "the dcterms:title trap comes back empty with repair advice",
+    "the dcterms:title trap is rejected with the graph's predicates",
+    hallucinated.isError === true && firstText(hallucinated.content).includes("omv:name"),
+  );
+
+  const empty = await client.callTool({
+    name: "run_sparql",
+    arguments: {
+      query: `
+        PREFIX meta: <http://data.bioontology.org/metadata/>
+        PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
+        SELECT ?ont WHERE {
+          GRAPH meta:Ontology { ?ont omv:acronym "NO-SUCH-ONTOLOGY" }
+        } LIMIT 5`,
+    },
+  });
+  check(
+    "zero rows come back empty with repair advice",
     firstText(empty.content).includes('"outcome": "empty"') &&
       firstText(empty.content).includes("GRAPH is wrong"),
   );

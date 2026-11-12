@@ -9,6 +9,8 @@
 
 import { GuardVerdict, guard } from "../guards/guards.js";
 import { QueryOutcome, SparqlEndpoint } from "../sparql/endpoint.js";
+import type { CardService } from "./card.js";
+import { misplacedPredicates } from "./predicates.js";
 
 /** Rows returned to the model. Beyond this it is summarising, not reading. */
 const MAX_ROWS_TO_MODEL = 50;
@@ -40,13 +42,24 @@ const TIMEOUT_ADVICE =
   "aggregate with COUNT instead of returning rows.";
 
 export class QueryService {
-  constructor(private readonly endpoint: SparqlEndpoint) {}
+  constructor(
+    private readonly endpoint: SparqlEndpoint,
+    private readonly cards: CardService,
+  ) {}
 
   async run(query: string): Promise<ExecutionReport> {
     const checked = guard(query);
 
     if (checked.verdict === GuardVerdict.Rejected) {
       return { outcome: "rejected", advice: checked.reason };
+    }
+
+    // A predicate its graph never uses matches nothing: say where it lives instead of running.
+    const graphs = await this.cards.profiles();
+    const misplaced = graphs ? misplacedPredicates(checked.query, graphs) : null;
+
+    if (misplaced) {
+      return { outcome: "rejected", advice: misplaced };
     }
 
     const result = await this.endpoint.select(checked.query);

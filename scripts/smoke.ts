@@ -10,13 +10,20 @@
  *   npx tsx scripts/smoke.ts
  */
 
+import { CardService } from "../src/catalog/card.js";
 import { Catalog } from "../src/catalog/catalog.js";
 import { QueryService } from "../src/catalog/execution.js";
-import { buildSchemaCard, renderSchemaCard } from "../src/catalog/introspect.js";
+import {
+  buildSchemaCard,
+  renderSchemaCard,
+  type GraphProfile,
+} from "../src/catalog/introspect.js";
 import { portalFromEnv } from "../src/catalog/portal.js";
-import { prefixBlock } from "../src/catalog/vocabulary.js";
+import { misplacedPredicates } from "../src/catalog/predicates.js";
+import { GRAPHS, META, OMV, prefixBlock } from "../src/catalog/vocabulary.js";
 import { GuardVerdict, guard } from "../src/guards/guards.js";
 import { EXAMPLES } from "../src/mcp/guidance.js";
+import { findSchemaCard } from "../src/mcp/paths.js";
 import { QueryOutcome, SparqlEndpoint } from "../src/sparql/endpoint.js";
 
 let failures = 0;
@@ -80,6 +87,96 @@ function guardTests(): void {
   check("does not trip on DELETE inside a literal", literal.verdict === GuardVerdict.Allowed);
 }
 
+/** Two graphs, two predicates each: enough to tell "wrong graph" from "nowhere". */
+const PROFILE: GraphProfile[] = [
+  {
+    iri: GRAPHS.ontology,
+    label: "Ontology",
+    note: "",
+    subjects: 1,
+    predicates: [
+      { predicate: OMV.acronym, uses: 1 },
+      { predicate: OMV.name, uses: 1 },
+    ],
+  },
+  {
+    iri: GRAPHS.submission,
+    label: "OntologySubmission",
+    note: "",
+    subjects: 1,
+    predicates: [
+      { predicate: META.ontology, uses: 1 },
+      { predicate: OMV.description, uses: 1 },
+    ],
+  },
+];
+
+/** A query over the test profile, behind the prefixes the host prompt declares. */
+function misplaced(where: string): string | null {
+  return misplacedPredicates(`${prefixBlock()}\nSELECT * WHERE { ${where} }`, PROFILE);
+}
+
+function predicateTests(): void {
+  process.stdout.write("\npredicates\n");
+
+  check(
+    "passes predicates their graph uses",
+    misplaced("GRAPH meta:Ontology { ?o omv:acronym ?a ; omv:name ?n }") === null,
+  );
+
+  const wrongGraph = misplaced("GRAPH meta:Ontology { ?o omv:description ?d }");
+  check(
+    "names the graph a misplaced predicate lives in",
+    wrongGraph?.includes("`meta:OntologySubmission`") === true,
+    wrongGraph?.split("\n")[1] ?? "passed",
+  );
+
+  const nowhere = misplaced("GRAPH meta:Ontology { ?o dcterms:title ?t }");
+  check(
+    "lists the graph's predicates for one used nowhere",
+    nowhere?.includes("no metadata graph") === true && nowhere.includes("`omv:name`"),
+    nowhere?.split("\n")[1] ?? "passed",
+  );
+
+  // Patterns that never fail the query: the wrong answers come from these.
+  check(
+    "finds a misplaced predicate under NOT EXISTS",
+    misplaced("GRAPH meta:Ontology { ?o omv:name ?n FILTER NOT EXISTS { ?o omv:description ?d } }") !== null,
+  );
+  check(
+    "finds a misplaced predicate under OPTIONAL in a subquery",
+    misplaced("{ SELECT ?o WHERE { GRAPH meta:Ontology { ?o omv:name ?n OPTIONAL { ?o omv:description ?d } } } }") !== null,
+  );
+
+  check(
+    "checks each link of a sequence path",
+    misplaced("GRAPH meta:Ontology { ?o omv:name/omv:description ?d }") !== null,
+  );
+  check(
+    "lets an alternative path through",
+    misplaced("GRAPH meta:Ontology { ?o omv:name|omv:description ?d }") === null,
+  );
+
+  check(
+    "leaves graphs the card does not profile alone",
+    misplaced("GRAPH ?g { ?o omv:description ?d } GRAPH <http://example.org/content> { ?c omv:x ?y } ?s omv:y ?z") === null,
+  );
+  check(
+    "leaves SERVICE alone",
+    misplaced("SERVICE <http://example.org/sparql> { GRAPH meta:Ontology { ?o omv:description ?d } }") === null,
+  );
+
+  // An undeclared prefix resolves to the portal's own; Virtuoso still reports it.
+  check(
+    "resolves an undeclared prefix",
+    misplacedPredicates("SELECT * WHERE { GRAPH meta:Ontology { ?o omv:description ?d } }", PROFILE) !== null,
+  );
+  check(
+    "lets an unparseable query through to the endpoint",
+    misplacedPredicates("SELECT ?s WHERE { GRAPH meta:Ontology { ?s", PROFILE) === null,
+  );
+}
+
 async function catalogTests(catalog: Catalog, endpoint: SparqlEndpoint): Promise<void> {
   process.stdout.write("\ncatalog\n");
 
@@ -124,7 +221,7 @@ async function executionTests(service: QueryService): Promise<void> {
   const syntax = await service.run("SELECT ?s WHERE { GRAPH <g> { ?s ?p");
   check("classifies a syntax error", syntax.outcome === QueryOutcome.Invalid);
 
-  const empty = await service.run(`
+  const hallucinated = await service.run(`
     PREFIX meta: <http://data.bioontology.org/metadata/>
     PREFIX dcterms: <http://purl.org/dc/terms/>
     SELECT ?title WHERE {
@@ -132,7 +229,20 @@ async function executionTests(service: QueryService): Promise<void> {
     } LIMIT 5
   `);
   check(
-    "reports the dcterms:title trap as empty with advice",
+    "rejects the dcterms:title trap before it runs, listing omv:name",
+    hallucinated.outcome === "rejected" && Boolean(hallucinated.advice?.includes("`omv:name`")),
+    String(hallucinated.outcome),
+  );
+
+  const empty = await service.run(`
+    PREFIX meta: <http://data.bioontology.org/metadata/>
+    PREFIX omv: <http://omv.ontoware.org/2005/05/ontology#>
+    SELECT ?ont WHERE {
+      GRAPH meta:Ontology { ?ont omv:acronym "NO-SUCH-ONTOLOGY" }
+    } LIMIT 5
+  `);
+  check(
+    "reports zero rows as empty with advice",
     empty.outcome === QueryOutcome.Empty && Boolean(empty.advice),
   );
 
@@ -316,15 +426,39 @@ async function cardTests(endpoint: SparqlEndpoint, portal: string): Promise<void
   );
 }
 
+/**
+ * The predicate check must never reject what the card teaches. A rejected
+ * example means the check or the example is wrong, and either way the model
+ * is told to fix a query that works.
+ */
+async function examplePredicateTests(cards: CardService): Promise<void> {
+  process.stdout.write("\nexamples against the predicate check\n");
+
+  const graphs = await cards.profiles();
+  check("live card profiles every graph", graphs !== null);
+
+  for (const [, body] of EXAMPLES.matchAll(/```sparql\n([\s\S]*?)```/g)) {
+    const advice = misplacedPredicates(`${prefixBlock()}\n${body}`, graphs ?? []);
+    check(
+      `passes: ${body?.split("\n")[0] ?? ""}`,
+      advice === null,
+      advice?.split("\n")[1] ?? "",
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const portal = portalFromEnv();
   const endpoint = new SparqlEndpoint({ url: portal.sparqlUrl });
+  const cards = new CardService(endpoint, portal.name, findSchemaCard);
 
   guardTests();
+  predicateTests();
   await catalogTests(new Catalog(endpoint), endpoint);
-  await executionTests(new QueryService(endpoint));
-  await idiomTests(new QueryService(endpoint), new Catalog(endpoint));
+  await executionTests(new QueryService(endpoint, cards));
+  await idiomTests(new QueryService(endpoint, cards), new Catalog(endpoint));
   await cardTests(endpoint, portal.name);
+  await examplePredicateTests(cards);
 
   process.stdout.write(failures === 0 ? "\nall passed\n" : `\n${failures} failed\n`);
   process.exit(failures === 0 ? 0 : 1);

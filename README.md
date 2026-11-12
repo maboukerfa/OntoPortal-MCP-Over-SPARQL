@@ -135,6 +135,15 @@ rows. Rejections come back as MCP tool errors so the model treats them as
 something to fix; empty results come back as *success* with a warning, because
 on this endpoint zero rows nearly always means the query was wrong.
 
+It also parses the query and rejects any predicate that a metadata graph it
+reads never uses, naming the graph that does hold it and listing the right
+graph's predicates. That catches `dcterms:title`, and `omv:description` asked
+of `meta:Ontology`, before they cost a round trip. Under OPTIONAL or NOT EXISTS
+such a pattern does not empty the result but silently skews it, which no
+amount of zero-row advice would flag. The check uses the live card's
+predicate lists and is skipped while only the snapshot is available, or when
+the query does not parse; content graphs and `GRAPH ?g` are not checked.
+
 ## Architecture
 
 The host owns the model and the loop. There is no LLM SDK here and no

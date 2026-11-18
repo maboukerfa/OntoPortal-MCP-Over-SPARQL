@@ -122,9 +122,19 @@ claude mcp add -s user ontoportal -- \
 | `resolve_ontology` | Name or acronym → real IRI, portal page, and the named graph holding its current content. |
 | `run_sparql` | Guarded read-only execution. Returns rows with portal links, or a failure with repair advice. |
 | `list_terms` | The subject categories or groups, with IRIs and portal pages. |
+| `show_class_graph` | A class or concept with its ancestors and the terms it relates to, as the portal's Graph tab draws it. Interactive in hosts that render MCP Apps. |
 
 **Resources** — `ontoportal://schema-card`, `ontoportal://examples`, for hosts
-that attach context without a tool call.
+that attach context without a tool call. `ui://ontoportal-sparql/class-graph.html`,
+the view `show_class_graph` names in its `_meta.ui.resourceUri`.
+
+**Class graph view** — an [MCP App](https://apps.extensions.modelcontextprotocol.io/):
+one self-contained HTML file, `ui/class-graph.html`, that the host renders in a
+sandboxed iframe and feeds the tool's `structuredContent`. Click a class for its
+definition and path to the roots, double-click to graph it in place (the view
+calls the tool back through the host), and open its portal page. Hosts without
+MCP Apps get the same nodes and edges as JSON. The view speaks the protocol by
+hand: `@modelcontextprotocol/ext-apps` needs SDK 2.
 
 **Prompt** — `query_portal(question)`, a ready-made framing with the card,
 idioms and prefixes preloaded.

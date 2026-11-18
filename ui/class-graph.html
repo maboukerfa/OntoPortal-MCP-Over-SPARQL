@@ -1,0 +1,1120 @@
+<!doctype html>
+<!--
+  MCP Apps view for show_class_graph: the host renders it in a sandboxed
+  iframe and hands it the tool's result over postMessage.
+
+      host ──ui/notifications/tool-result──▶ this page ──render──▶ SVG
+      this page ──tools/call show_class_graph──▶ host ──▶ server   (double-click)
+      this page ──ui/open-link──▶ host                              (portal page)
+
+  Self-contained on purpose: the default CSP blocks every other origin, and
+  declaring a CDN would make the view depend on it.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Class graph</title>
+<style>
+  :root {
+    color-scheme: light dark;
+
+    /* Own palette: used where the host passes no theme variables. */
+    --own-bg: #ffffff;
+    --own-surface: #f5f5f2;
+    --own-text: #1c1c1a;
+    --own-muted: #66665f;
+    --own-line: #c8c7c0;
+    --own-accent: #2d6a4a;
+    --own-on-accent: #ffffff;
+    --own-relation: #a9501b;
+
+    --bg: var(--color-background-primary, var(--own-bg));
+    --surface: var(--color-background-secondary, var(--own-surface));
+    --text: var(--color-text-primary, var(--own-text));
+    --muted: var(--color-text-secondary, var(--own-muted));
+    --line: var(--color-border-primary, var(--own-line));
+    --accent: var(--own-accent);
+    --on-accent: var(--own-on-accent);
+    --relation: var(--own-relation);
+    --sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --own-bg: #1b1b1a;
+      --own-surface: #252523;
+      --own-text: #ecebe5;
+      --own-muted: #a3a29a;
+      --own-line: #4c4b46;
+      --own-accent: #79c49a;
+      --own-on-accent: #0f2419;
+      --own-relation: #e8955f;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --own-bg: #1b1b1a;
+    --own-surface: #252523;
+    --own-text: #ecebe5;
+    --own-muted: #a3a29a;
+    --own-line: #4c4b46;
+    --own-accent: #79c49a;
+    --own-on-accent: #0f2419;
+    --own-relation: #e8955f;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.4 var(--sans);
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    height: var(--inline-height);
+    overflow: hidden;
+  }
+
+  /* Fullscreen, or a host that fixes the frame's height: fill it. */
+  :root.fills body { height: 100vh; }
+
+  button {
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 10px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--surface); }
+  button:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .title strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip {
+    font: 600 11px/1 var(--mono);
+    letter-spacing: 0.02em;
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+  }
+  .muted { color: var(--muted); }
+  .tools { display: flex; gap: 4px; }
+  .tools button { min-width: 30px; }
+
+  main { position: relative; flex: 1; min-height: 0; background: var(--surface); }
+  svg#canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; user-select: none; }
+  svg#canvas.panning { cursor: grabbing; }
+
+  .node { cursor: pointer; }
+  .node rect { fill: var(--bg); stroke: var(--line); stroke-width: 1.25; }
+  .node text { fill: var(--text); font: 500 13px var(--sans); }
+  .node:hover rect { stroke: var(--accent); }
+  .node.related rect { stroke: var(--relation); stroke-width: 1.5; }
+  .node.focus rect { fill: var(--accent); stroke: var(--accent); }
+  .node.focus text { fill: var(--on-accent); font-weight: 600; }
+  .node.selected rect { stroke: var(--accent); stroke-width: 2.5; }
+
+  .edge { fill: none; stroke: var(--line); stroke-width: 1.4; }
+  .edge.relation { stroke: var(--relation); stroke-dasharray: 5 4; }
+  .edge.on-path { stroke: var(--accent); stroke-width: 2.2; }
+  .edge-label rect { fill: var(--surface); }
+  .edge-label text { fill: var(--relation); font: italic 500 12px var(--sans); }
+  .marker-isa { fill: var(--bg); stroke: var(--line); stroke-width: 1.2; }
+  .marker-isa.on-path { stroke: var(--accent); }
+  .marker-relation { fill: var(--relation); }
+
+  /* A selection dims what is not on its path to the roots. */
+  .dim { opacity: 0.28; }
+  .node, .edge, .edge-label { transition: opacity 120ms ease; }
+  @media (prefers-reduced-motion: reduce) { .node, .edge, .edge-label { transition: none; } }
+
+  #status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+    white-space: pre-wrap;
+  }
+
+  #details {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    width: min(380px, calc(100% - 24px));
+    max-height: calc(100% - 24px);
+    overflow: auto;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+  }
+  #details h2 { margin: 0 24px 4px 0; font-size: 15px; }
+  #details code { display: block; font: 11px/1.4 var(--mono); color: var(--muted); word-break: break-all; }
+  #details p { margin: 8px 0 0; }
+  #details .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  #details .close { position: absolute; top: 8px; right: 8px; border: 0; padding: 2px 8px; background: transparent; }
+
+  #toast {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--text);
+    color: var(--bg);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .hint { margin-left: auto; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <header class="bar">
+    <div class="title">
+      <span class="chip" id="ontology" hidden></span>
+      <strong id="focus-label">Class graph</strong>
+      <span class="muted" id="summary"></span>
+    </div>
+    <div class="tools">
+      <button id="back" type="button" hidden title="Back to the previous class">← Back</button>
+      <button id="zoom-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+      <button id="zoom-in" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+      <button id="fit" type="button" title="Fit the whole graph (F)">Fit</button>
+      <button id="expand" type="button" hidden>Expand</button>
+    </div>
+  </header>
+
+  <main>
+    <svg id="canvas" role="img" aria-label="Class hierarchy graph">
+      <defs>
+        <!-- Hollow triangle: the UML mark for "is a kind of". -->
+        <marker id="arrow-isa" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto">
+          <path class="marker-isa" d="M1,1 L11,6 L1,11 z"></path>
+        </marker>
+        <marker id="arrow-isa-path" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto">
+          <path class="marker-isa on-path" d="M1,1 L11,6 L1,11 z"></path>
+        </marker>
+        <marker id="arrow-relation" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
+          <path class="marker-relation" d="M0,0 L10,5 L0,10 z"></path>
+        </marker>
+      </defs>
+      <g id="viewport">
+        <g id="edges"></g>
+        <g id="nodes"></g>
+      </g>
+    </svg>
+
+    <p id="status">Waiting for the graph…</p>
+
+    <aside id="details" hidden aria-live="polite">
+      <button class="close" id="details-close" type="button" aria-label="Close">✕</button>
+      <h2 id="details-label"></h2>
+      <code id="details-iri"></code>
+      <p id="details-definition"></p>
+      <div class="actions">
+        <button class="primary" id="details-graph" type="button">Graph this class</button>
+        <button id="details-open" type="button">Open in portal</button>
+      </div>
+    </aside>
+
+    <div id="toast" role="status" hidden></div>
+  </main>
+
+  <footer class="legend">
+    <span><svg width="26" height="10" aria-hidden="true"><line x1="0" y1="5" x2="26" y2="5" stroke="currentColor" stroke-width="1.4"></line></svg>is-a</span>
+    <span><svg width="26" height="10" aria-hidden="true"><line x1="0" y1="5" x2="26" y2="5" stroke="var(--relation)" stroke-width="1.4" stroke-dasharray="5 4"></line></svg>relation</span>
+    <span class="hint">Click a class for details · double-click to graph it · drag to pan · ⌘/Ctrl+scroll to zoom</span>
+  </footer>
+
+<script>
+"use strict";
+
+// --- Protocol: JSON-RPC 2.0 over postMessage, MCP Apps 2026-01-26 -----------
+
+const PROTOCOL_VERSION = "2026-01-26";
+const APP_INFO = { name: "ontoportal-class-graph", version: "0.1.0" };
+
+/** The tool this view renders, unless the host names it in toolInfo. Matches ToolName in server.ts. */
+const GRAPH_TOOL = "show_class_graph";
+
+const Method = {
+  Initialize: "ui/initialize",
+  Initialized: "ui/notifications/initialized",
+  ToolInput: "ui/notifications/tool-input",
+  ToolResult: "ui/notifications/tool-result",
+  ToolCancelled: "ui/notifications/tool-cancelled",
+  ContextChanged: "ui/notifications/host-context-changed",
+  Teardown: "ui/resource-teardown",
+  Ping: "ping",
+  SizeChanged: "ui/notifications/size-changed",
+  OpenLink: "ui/open-link",
+  DisplayMode: "ui/request-display-mode",
+  CallTool: "tools/call",
+};
+
+const DisplayMode = { Inline: "inline", Fullscreen: "fullscreen" };
+
+/** JSON-RPC's code for a method nobody handles. */
+const METHOD_NOT_FOUND = -32601;
+
+let nextId = 1;
+const pending = new Map();
+
+function send(message) {
+  window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*");
+}
+
+function request(method, params) {
+  const id = nextId++;
+  send({ id, method, params });
+  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+}
+
+function notify(method, params) {
+  send({ method, params });
+}
+
+/** What the host may send. A request gets its handler's return value as the answer. */
+const handlers = {
+  [Method.ToolInput]: ({ arguments: args }) => {
+    showStatus(`Graphing ${args?.iri ?? "the class"} in ${args?.ontology ?? "its ontology"}…`);
+  },
+  [Method.ToolResult]: (result) => showResult(result),
+  [Method.ToolCancelled]: ({ reason }) => showStatus(`Cancelled${reason ? `: ${reason}` : ""}.`),
+  [Method.ContextChanged]: (changes) => applyContext(changes),
+  [Method.Teardown]: () => ({}),
+  [Method.Ping]: () => ({}),
+};
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window.parent) {
+    return;
+  }
+
+  const message = event.data;
+  if (!message || message.jsonrpc !== "2.0") {
+    return;
+  }
+
+  // An answer to one of our requests.
+  if (message.method === undefined) {
+    const waiting = pending.get(message.id);
+    if (!waiting) {
+      return;
+    }
+
+    pending.delete(message.id);
+    if (message.error) {
+      waiting.reject(new Error(message.error.message));
+    } else {
+      waiting.resolve(message.result);
+    }
+    return;
+  }
+
+  // A notification wants nothing back; a request wants an answer or an error.
+  const handler = handlers[message.method];
+  const answer = handler ? handler(message.params ?? {}) : undefined;
+  if (message.id === undefined) {
+    return;
+  }
+
+  if (!handler) {
+    send({ id: message.id, error: { code: METHOD_NOT_FOUND, message: `Unknown method ${message.method}` } });
+    return;
+  }
+  send({ id: message.id, result: answer ?? {} });
+});
+
+// --- Host context: theme, fonts, display mode ----------------------------------
+
+/** The frame's height inline, unless the host caps it lower. */
+const INLINE_HEIGHT = 560;
+document.documentElement.style.setProperty("--inline-height", `${INLINE_HEIGHT}px`);
+
+const context = {};
+let fontsApplied = false;
+
+function applyContext(changes) {
+  Object.assign(context, changes);
+  const root = document.documentElement;
+
+  if (context.theme) {
+    root.dataset.theme = context.theme;
+    root.style.colorScheme = context.theme;
+  }
+
+  for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
+    if (value) {
+      root.style.setProperty(name, value);
+    }
+  }
+
+  if (context.styles?.css?.fonts && !fontsApplied) {
+    const style = document.createElement("style");
+    style.textContent = context.styles.css.fonts;
+    document.head.append(style);
+    fontsApplied = true;
+  }
+
+  // A fixed height or fullscreen gives us the frame; otherwise we pick our own, within any cap.
+  const dimensions = context.containerDimensions ?? {};
+  root.classList.toggle("fills", context.displayMode === DisplayMode.Fullscreen || "height" in dimensions);
+  if (dimensions.maxHeight) {
+    root.style.setProperty("--inline-height", `${Math.min(INLINE_HEIGHT, dimensions.maxHeight)}px`);
+  }
+
+  const canExpand = (context.availableDisplayModes ?? []).includes(DisplayMode.Fullscreen);
+  ui.expand.hidden = !canExpand;
+  ui.expand.textContent = context.displayMode === DisplayMode.Fullscreen ? "Collapse" : "Expand";
+}
+
+/** Tell the host our size whenever it changes; it sizes the frame to match. */
+function watchSize() {
+  let last = "";
+
+  const report = () => {
+    const width = Math.ceil(window.innerWidth);
+    const height = Math.ceil(document.documentElement.getBoundingClientRect().height);
+    if (`${width}x${height}` === last) {
+      return;
+    }
+
+    last = `${width}x${height}`;
+    notify(Method.SizeChanged, { width, height });
+  };
+
+  new ResizeObserver(() => requestAnimationFrame(report)).observe(document.body);
+  report();
+}
+
+// --- Elements ----------------------------------------------------------------
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const ui = {
+  canvas: document.getElementById("canvas"),
+  viewport: document.getElementById("viewport"),
+  edges: document.getElementById("edges"),
+  nodes: document.getElementById("nodes"),
+  status: document.getElementById("status"),
+  ontology: document.getElementById("ontology"),
+  focusLabel: document.getElementById("focus-label"),
+  summary: document.getElementById("summary"),
+  back: document.getElementById("back"),
+  zoomIn: document.getElementById("zoom-in"),
+  zoomOut: document.getElementById("zoom-out"),
+  fit: document.getElementById("fit"),
+  expand: document.getElementById("expand"),
+  details: document.getElementById("details"),
+  detailsClose: document.getElementById("details-close"),
+  detailsLabel: document.getElementById("details-label"),
+  detailsIri: document.getElementById("details-iri"),
+  detailsDefinition: document.getElementById("details-definition"),
+  detailsGraph: document.getElementById("details-graph"),
+  detailsOpen: document.getElementById("details-open"),
+  toast: document.getElementById("toast"),
+};
+
+function svg(tag, attributes = {}) {
+  const element = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    element.setAttribute(name, String(value));
+  }
+  return element;
+}
+
+function showStatus(text) {
+  ui.status.textContent = text;
+  ui.status.hidden = false;
+}
+
+let toastTimer = 0;
+
+function toast(text) {
+  ui.toast.textContent = text;
+  ui.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { ui.toast.hidden = true; }, 3000);
+}
+
+// --- Layout: layered, the class and what it relates to on the bottom row ---------
+//
+//   rank 0     entity
+//   rank 1     continuant          occurrent
+//   rank 2     object              process
+//   rank 3     heterotroph         heterotrophy
+//                  ╰┄┄capable of┄┄┄┄┄▶╯
+//
+// A term sits one rank above its highest child, so every chain ends on the
+// bottom row and a relation is a short arc below it, not a line across the
+// hierarchy. Rows are ordered to cut crossings (barycenter sweeps, then
+// adjacent swaps), then nudged toward their neighbours.
+
+const NODE_HEIGHT = 30;
+const ROW_GAP = 78;
+const COLUMN_GAP = 26;
+const PADDING_X = 14;
+const MAX_LABEL = 36;
+const ORDER_SWEEPS = 8;
+const SWAP_PASSES = 4;
+const NUDGE_SWEEPS = 6;
+/** How far below its row a relation arc dips: deeper for farther targets, so nested arcs stay apart. */
+const ARC_MIN_DEPTH = 26;
+const ARC_MAX_DEPTH = 120;
+const ARC_DEPTH_PER_PX = 0.14;
+const EDGE_LABEL_HEIGHT = 18;
+
+const EdgeKind = { IsA: "is-a", Relation: "relation" };
+
+const measure = document.createElement("canvas").getContext("2d");
+
+function shorten(label) {
+  return label.length > MAX_LABEL ? `${label.slice(0, MAX_LABEL - 1)}…` : label;
+}
+
+function layout(graph) {
+  const { nodes, edges } = connect(graph);
+  const focus = nodes.get(graph.focus);
+  const ranks = rankRows(nodes);
+
+  orderRows(ranks, focus);
+  placeRows(ranks);
+
+  return { nodes, edges, focus, arcDepth: 0 };
+}
+
+/** Each node with its parents, children and neighbours of either kind. */
+function connect(graph) {
+  const nodes = new Map(
+    graph.nodes.map((node) => [node.iri, { ...node, text: shorten(node.label), parents: [], children: [], neighbours: [] }]),
+  );
+  const edges = graph.edges.filter((edge) => nodes.has(edge.from) && nodes.has(edge.to) && edge.from !== edge.to);
+
+  for (const edge of edges) {
+    const from = nodes.get(edge.from);
+    const to = nodes.get(edge.to);
+    from.neighbours.push(to);
+    to.neighbours.push(from);
+
+    if (edge.kind === EdgeKind.IsA) {
+      from.parents.push(to);
+      to.children.push(from);
+    }
+  }
+  return { nodes, edges };
+}
+
+/** Rows, top first. Height is 0 for a term with no child here, else one above its highest child. */
+function rankRows(nodes) {
+  // A broader cycle (SKOS allows one) stops at 0.
+  const visiting = new Set();
+  const heightOf = (node) => {
+    if (node.height !== undefined) {
+      return node.height;
+    }
+    if (visiting.has(node)) {
+      return 0;
+    }
+
+    visiting.add(node);
+    node.height = node.children.length ? 1 + Math.max(...node.children.map(heightOf)) : 0;
+    visiting.delete(node);
+    return node.height;
+  };
+  nodes.forEach(heightOf);
+
+  const top = Math.max(...[...nodes.values()].map((node) => node.height));
+  const rows = [];
+  for (const node of nodes.values()) {
+    node.rank = top - node.height;
+    node.y = node.rank * ROW_GAP;
+    (rows[node.rank] ??= []).push(node);
+  }
+  return rows.filter(Boolean);
+}
+
+/** A node's place in its row, centred on 0 so rows of different lengths line up. */
+function position(node, row) {
+  return row.indexOf(node) - (row.length - 1) / 2;
+}
+
+/** Order each row to cut crossings: barycenter sweeps, then adjacent swaps. */
+function orderRows(ranks, focus) {
+  for (const row of ranks) {
+    row.forEach((node) => { node.order = position(node, row); });
+  }
+
+  // Each node moves to the mean position of its neighbours in other rows, sweeping down then up.
+  for (let sweep = 0; sweep < ORDER_SWEEPS; sweep++) {
+    const sequence = sweep % 2 === 0 ? ranks : [...ranks].reverse();
+    for (const row of sequence) {
+      for (const node of row) {
+        const others = node.neighbours.filter((other) => other.rank !== node.rank);
+        node.bary = others.length ? others.reduce((sum, other) => sum + other.order, 0) / others.length : node.order;
+      }
+      row.sort((a, b) => a.bary - b.bary);
+      row.forEach((node) => { node.order = position(node, row); });
+    }
+  }
+
+  // Swap neighbours in a row while that uncrosses edges to the rows above and below.
+  const crossings = (left, right) => {
+    let count = 0;
+    for (const rank of [left.rank - 1, left.rank + 1]) {
+      for (const a of left.neighbours.filter((other) => other.rank === rank)) {
+        count += right.neighbours.filter((b) => b.rank === rank && b.order < a.order).length;
+      }
+    }
+    return count;
+  };
+
+  for (let pass = 0; pass < SWAP_PASSES; pass++) {
+    let swapped = false;
+    for (const row of ranks) {
+      for (let i = 0; i + 1 < row.length; i++) {
+        const [left, right] = [row[i], row[i + 1]];
+        if (crossings(right, left) >= crossings(left, right)) {
+          continue;
+        }
+
+        [row[i], row[i + 1]] = [right, left];
+        [left.order, right.order] = [right.order, left.order];
+        swapped = true;
+      }
+    }
+
+    if (!swapped) {
+      break;
+    }
+  }
+
+  // The class sits amid the terms it relates to on its row, so its arcs split left and right.
+  const focusRow = ranks.find((row) => row.includes(focus));
+  const targets = focusRow?.filter((node) => node !== focus && focus.neighbours.includes(node)) ?? [];
+  if (targets.length > 1) {
+    focusRow.splice(focusRow.indexOf(focus), 1);
+    focusRow.splice(focusRow.indexOf(targets[Math.floor(targets.length / 2)]), 0, focus);
+    focusRow.forEach((node) => { node.order = position(node, focusRow); });
+  }
+}
+
+/** x: pack each row around 0, then pull nodes toward their neighbours without reordering or overlapping. */
+function placeRows(ranks) {
+  // Widths from the rendered font, so long labels get room.
+  measure.font = `600 13px ${getComputedStyle(document.body).fontFamily}`;
+  for (const row of ranks) {
+    for (const node of row) {
+      node.width = Math.ceil(measure.measureText(node.text).width) + PADDING_X * 2;
+    }
+
+    const total = row.reduce((sum, node) => sum + node.width, 0) + COLUMN_GAP * (row.length - 1);
+    let x = -total / 2;
+    for (const node of row) {
+      node.x = x + node.width / 2;
+      x += node.width + COLUMN_GAP;
+    }
+  }
+
+  for (let sweep = 0; sweep < NUDGE_SWEEPS; sweep++) {
+    const sequence = sweep % 2 === 0 ? [...ranks].reverse() : ranks;
+    for (const row of sequence) {
+      const desired = row.map((node) => {
+        const others = node.neighbours.filter((other) => other.rank !== node.rank);
+        return others.length ? others.reduce((sum, other) => sum + other.x, 0) / others.length : node.x;
+      });
+
+      // Left to right, keep the gap; then shift the row back by its mean drift.
+      const xs = [];
+      row.forEach((node, i) => {
+        const previous = row[i - 1];
+        const floor = previous ? xs[i - 1] + (previous.width + node.width) / 2 + COLUMN_GAP : -Infinity;
+        xs.push(Math.max(desired[i], floor));
+      });
+      const drift = xs.reduce((sum, x, i) => sum + (desired[i] - x), 0) / row.length;
+      row.forEach((node, i) => { node.x = xs[i] + drift; });
+    }
+  }
+}
+
+// --- Drawing -------------------------------------------------------------------
+
+/** The point halfway along a cubic Bézier. */
+function midpoint(p0, p1, p2, p3) {
+  return {
+    x: (p0.x + 3 * p1.x + 3 * p2.x + p3.x) / 8,
+    y: (p0.y + 3 * p1.y + 3 * p2.y + p3.y) / 8,
+  };
+}
+
+/** How far below its row an arc of this span dips. */
+function arcDepth(span) {
+  return Math.min(ARC_MAX_DEPTH, ARC_MIN_DEPTH + span * ARC_DEPTH_PER_PX);
+}
+
+/** A curve from one box to another: top to bottom across ranks, an arc under the row within one. */
+function route(from, to) {
+  const half = NODE_HEIGHT / 2;
+
+  if (from.rank === to.rank) {
+    const direction = to.x >= from.x ? 1 : -1;
+    const start = { x: from.x + direction * Math.min(from.width / 4, 20), y: from.y + half };
+    const end = { x: to.x - direction * Math.min(to.width / 4, 20), y: to.y + half };
+    const depth = arcDepth(Math.abs(end.x - start.x)) / 0.75;
+    return [start, { x: start.x, y: start.y + depth }, { x: end.x, y: end.y + depth }, end];
+  }
+
+  const upward = to.y < from.y ? 1 : -1;
+  const start = { x: from.x, y: from.y - upward * half };
+  const end = { x: to.x, y: to.y + upward * half };
+  const bend = (start.y - end.y) / 2;
+  return [start, { x: start.x, y: start.y - bend }, { x: end.x, y: end.y + bend }, end];
+}
+
+function pathOf([p0, p1, p2, p3]) {
+  return `M${p0.x},${p0.y} C${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`;
+}
+
+let current = null;
+let placed = null;
+/** Graphs left by double-clicking, for Back. */
+const trail = [];
+
+function draw() {
+  ui.edges.replaceChildren();
+  ui.nodes.replaceChildren();
+
+  // Parallel relations between one pair share a curve and list their labels.
+  const relations = new Map();
+  for (const edge of placed.edges) {
+    if (edge.kind !== EdgeKind.Relation) {
+      continue;
+    }
+    const key = `${edge.from} ${edge.to}`;
+    const known = relations.get(key);
+    if (known) {
+      known.labels.push(edge.label);
+    } else {
+      relations.set(key, { ...edge, labels: [edge.label] });
+    }
+  }
+
+  const isA = placed.edges.filter((edge) => edge.kind === EdgeKind.IsA);
+  for (const edge of [...isA, ...relations.values()]) {
+    const from = placed.nodes.get(edge.from);
+    const to = placed.nodes.get(edge.to);
+    const points = route(from, to);
+    const relation = edge.kind === EdgeKind.Relation;
+
+    edge.element = svg("path", {
+      class: relation ? "edge relation" : "edge",
+      d: pathOf(points),
+      "marker-end": relation ? "url(#arrow-relation)" : "url(#arrow-isa)",
+    });
+    ui.edges.append(edge.element);
+
+    if (!relation) {
+      continue;
+    }
+
+    const text = edge.labels.join(", ");
+    const middle = midpoint(...points);
+    placed.arcDepth = Math.max(placed.arcDepth, middle.y - from.y + EDGE_LABEL_HEIGHT);
+    const label = svg("g", { class: "edge-label", transform: `translate(${middle.x},${middle.y})` });
+    const width = measure.measureText(text).width + 10;
+    label.append(svg("rect", { x: -width / 2, y: -EDGE_LABEL_HEIGHT / 2, width, height: EDGE_LABEL_HEIGHT, rx: 4 }));
+    const caption = svg("text", { "text-anchor": "middle", dy: "0.35em" });
+    caption.textContent = text;
+    label.append(caption);
+    edge.caption = label;
+    ui.edges.append(label);
+  }
+  placed.drawn = [...isA, ...relations.values()];
+
+  const related = new Set(placed.edges.filter((edge) => edge.kind === EdgeKind.Relation).map((edge) => edge.to));
+  for (const node of placed.nodes.values()) {
+    const classes = ["node"];
+    if (node.iri === current.focus) {
+      classes.push("focus");
+    } else if (related.has(node.iri)) {
+      classes.push("related");
+    }
+
+    node.element = svg("g", {
+      class: classes.join(" "),
+      transform: `translate(${node.x},${node.y})`,
+      tabindex: 0,
+      role: "button",
+      "aria-label": node.label,
+    });
+    node.element.dataset.iri = node.iri;
+    node.element.append(svg("rect", { x: -node.width / 2, y: -NODE_HEIGHT / 2, width: node.width, height: NODE_HEIGHT, rx: 8 }));
+    const text = svg("text", { "text-anchor": "middle", dy: "0.35em" });
+    text.textContent = node.text;
+    const title = svg("title");
+    title.textContent = node.label;
+    node.element.append(text, title);
+    ui.nodes.append(node.element);
+  }
+}
+
+// --- Selection: a class and its path to the roots ------------------------------
+
+let selected = null;
+
+function select(node) {
+  selected = node;
+
+  if (!node) {
+    for (const element of ui.canvas.querySelectorAll(".dim, .on-path, .selected")) {
+      element.classList.remove("dim", "on-path", "selected");
+    }
+    for (const edge of placed.drawn) {
+      if (edge.kind === EdgeKind.IsA) {
+        edge.element.setAttribute("marker-end", "url(#arrow-isa)");
+      }
+    }
+    ui.details.hidden = true;
+    return;
+  }
+
+  const lineage = new Set();
+  const walk = (step) => {
+    if (lineage.has(step)) {
+      return;
+    }
+    lineage.add(step);
+    step.parents.forEach(walk);
+  };
+  walk(node);
+
+  for (const other of placed.nodes.values()) {
+    other.element.classList.toggle("dim", !lineage.has(other));
+    other.element.classList.toggle("selected", other === node);
+  }
+
+  for (const edge of placed.drawn) {
+    const onPath = edge.kind === EdgeKind.IsA && lineage.has(placed.nodes.get(edge.from)) && lineage.has(placed.nodes.get(edge.to));
+    edge.element.classList.toggle("on-path", onPath);
+    edge.element.classList.toggle("dim", !onPath);
+    edge.caption?.classList.add("dim");
+    if (edge.kind === EdgeKind.IsA) {
+      edge.element.setAttribute("marker-end", onPath ? "url(#arrow-isa-path)" : "url(#arrow-isa)");
+    }
+  }
+
+  ui.detailsLabel.textContent = node.label;
+  ui.detailsIri.textContent = node.iri;
+  ui.detailsDefinition.textContent = node.definition ?? "";
+  ui.detailsDefinition.hidden = !node.definition;
+  ui.detailsGraph.hidden = node.iri === current.focus;
+  ui.detailsOpen.hidden = !node.portalUrl;
+  ui.details.hidden = false;
+}
+
+// --- View: pan and zoom ---------------------------------------------------------
+
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2.5;
+const ZOOM_STEP = 1.25;
+/** Below this a fitted graph is unreadable: start on the class instead. */
+const READABLE_ZOOM = 0.7;
+/** A small graph fitted any larger looks like a mistake. */
+const FIT_MAX_ZOOM = 1.2;
+const MARGIN = 28;
+
+const view = { x: 0, y: 0, k: 1 };
+
+function applyView() {
+  ui.viewport.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`);
+}
+
+function zoomAt(x, y, factor) {
+  const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.k * factor));
+  view.x = x - ((x - view.x) * k) / view.k;
+  view.y = y - ((y - view.y) * k) / view.k;
+  view.k = k;
+  applyView();
+}
+
+function zoomCentre(factor) {
+  const { width, height } = ui.canvas.getBoundingClientRect();
+  zoomAt(width / 2, height / 2, factor);
+}
+
+function bounds() {
+  const all = [...placed.nodes.values()];
+  return {
+    left: Math.min(...all.map((node) => node.x - node.width / 2)),
+    right: Math.max(...all.map((node) => node.x + node.width / 2)),
+    top: Math.min(...all.map((node) => node.y)) - NODE_HEIGHT,
+    bottom: Math.max(...all.map((node) => node.y)) + Math.max(NODE_HEIGHT, placed.arcDepth),
+  };
+}
+
+const FitMode = {
+  /** The whole graph, however small. */
+  Whole: "whole",
+  /** The whole graph, or the class at full size when the whole would be too small to read. */
+  Readable: "readable",
+};
+
+function fit(mode) {
+  const { width, height } = ui.canvas.getBoundingClientRect();
+  const box = bounds();
+  const k = Math.min(FIT_MAX_ZOOM, (width - 2 * MARGIN) / (box.right - box.left), (height - 2 * MARGIN) / (box.bottom - box.top));
+
+  if (mode === FitMode.Readable && k < READABLE_ZOOM && placed.focus) {
+    view.k = 1;
+    view.x = width / 2 - placed.focus.x;
+    view.y = height - MARGIN - box.bottom;
+    applyView();
+    return;
+  }
+
+  view.k = Math.max(MIN_ZOOM, k);
+  view.x = width / 2 - ((box.left + box.right) / 2) * view.k;
+  view.y = height / 2 - ((box.top + box.bottom) / 2) * view.k;
+  applyView();
+}
+
+const DRAG_THRESHOLD = 4;
+let drag = null;
+
+ui.canvas.addEventListener("pointerdown", (event) => {
+  drag = { x: event.clientX, y: event.clientY, moved: false, node: event.target.closest(".node") };
+});
+
+ui.canvas.addEventListener("pointermove", (event) => {
+  if (!drag) {
+    return;
+  }
+
+  const dx = event.clientX - drag.x;
+  const dy = event.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) {
+    return;
+  }
+
+  // Captured only once it is a drag: a capture retargets click and dblclick away from the node.
+  if (!drag.moved) {
+    ui.canvas.setPointerCapture(event.pointerId);
+  }
+  drag.moved = true;
+  ui.canvas.classList.add("panning");
+  view.x += dx;
+  view.y += dy;
+  drag.x = event.clientX;
+  drag.y = event.clientY;
+  applyView();
+});
+
+ui.canvas.addEventListener("pointerup", () => {
+  ui.canvas.classList.remove("panning");
+  if (drag && !drag.moved && placed) {
+    select(drag.node ? placed.nodes.get(drag.node.dataset.iri) : null);
+  }
+  drag = null;
+});
+
+ui.canvas.addEventListener("dblclick", (event) => {
+  const element = event.target.closest(".node");
+  if (element) {
+    regraph(element.dataset.iri);
+  }
+});
+
+// Plain scrolling stays with the conversation; ⌘/Ctrl (and trackpad pinch) zooms.
+ui.canvas.addEventListener("wheel", (event) => {
+  if (!event.ctrlKey && !event.metaKey) {
+    return;
+  }
+
+  event.preventDefault();
+  const box = ui.canvas.getBoundingClientRect();
+  zoomAt(event.clientX - box.left, event.clientY - box.top, Math.exp(-event.deltaY * 0.0015));
+}, { passive: false });
+
+ui.nodes.addEventListener("keydown", (event) => {
+  const element = event.target.closest(".node");
+  if (!element || event.key !== "Enter") {
+    return;
+  }
+
+  event.preventDefault();
+  if (event.shiftKey) {
+    regraph(element.dataset.iri);
+    return;
+  }
+  select(placed.nodes.get(element.dataset.iri));
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!placed || event.target.closest?.("button")) {
+    return;
+  }
+
+  if (event.key === "f" || event.key === "F") {
+    fit(FitMode.Whole);
+  } else if (event.key === "Escape") {
+    select(null);
+  } else if (event.key === "+" || event.key === "=") {
+    zoomCentre(ZOOM_STEP);
+  } else if (event.key === "-") {
+    zoomCentre(1 / ZOOM_STEP);
+  }
+});
+
+ui.zoomIn.addEventListener("click", () => placed && zoomCentre(ZOOM_STEP));
+ui.zoomOut.addEventListener("click", () => placed && zoomCentre(1 / ZOOM_STEP));
+ui.fit.addEventListener("click", () => placed && fit(FitMode.Whole));
+ui.detailsClose.addEventListener("click", () => select(null));
+ui.detailsGraph.addEventListener("click", () => selected && regraph(selected.iri));
+ui.detailsOpen.addEventListener("click", () => selected?.portalUrl && openLink(selected.portalUrl));
+ui.back.addEventListener("click", () => {
+  const previous = trail.pop();
+  if (previous) {
+    render(previous);
+  }
+});
+ui.expand.addEventListener("click", async () => {
+  const mode = context.displayMode === DisplayMode.Fullscreen ? DisplayMode.Inline : DisplayMode.Fullscreen;
+  try {
+    const result = await request(Method.DisplayMode, { mode });
+    applyContext({ displayMode: result?.mode ?? context.displayMode });
+    requestAnimationFrame(() => fit(FitMode.Readable));
+  } catch (error) {
+    toast(`The host kept the current size: ${error.message}`);
+  }
+});
+
+window.addEventListener("resize", () => placed && fit(FitMode.Readable));
+
+// --- Results ---------------------------------------------------------------------
+
+function render(graph) {
+  current = graph;
+  selected = null;
+  ui.details.hidden = true;
+  ui.status.hidden = true;
+
+  const focus = graph.nodes.find((node) => node.iri === graph.focus);
+  ui.ontology.textContent = graph.ontology;
+  ui.ontology.hidden = false;
+  ui.focusLabel.textContent = focus?.label ?? graph.focus;
+  const relations = graph.edges.filter((edge) => edge.kind === EdgeKind.Relation).length;
+  ui.summary.textContent =
+    `${graph.nodes.length} classes · ${relations} relation${relations === 1 ? "" : "s"}` +
+    (graph.truncated ? " · cut at the cap" : "");
+  ui.back.hidden = trail.length === 0;
+
+  placed = layout(graph);
+  draw();
+  fit(FitMode.Readable);
+}
+
+function showResult(result) {
+  const graph = result?.structuredContent;
+  if (!result?.isError && graph?.nodes) {
+    render(graph);
+    return;
+  }
+
+  const text = (result?.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("\n");
+  if (current) {
+    toast(text || "The server returned no graph.");
+    return;
+  }
+  showStatus(text || "The server returned no graph.");
+}
+
+/** Graph another class of the same ontology, in place. The host proxies the call to the server. */
+async function regraph(iri) {
+  if (!current || iri === current.focus) {
+    return;
+  }
+
+  const previous = current;
+  toast("Loading…");
+  try {
+    const result = await request(Method.CallTool, {
+      name: context.toolInfo?.tool?.name ?? GRAPH_TOOL,
+      arguments: { ontology: previous.ontology, iri },
+    });
+
+    if (result?.isError || !result?.structuredContent) {
+      showResult(result);
+      return;
+    }
+
+    trail.push(previous);
+    showResult(result);
+    ui.toast.hidden = true;
+  } catch (error) {
+    toast(`Could not load that class: ${error.message}`);
+  }
+}
+
+async function openLink(url) {
+  try {
+    await request(Method.OpenLink, { url });
+  } catch (error) {
+    toast(`The host did not open the link: ${error.message}`);
+  }
+}
+
+// --- Start -----------------------------------------------------------------------
+
+async function start() {
+  const result = await request(Method.Initialize, {
+    appInfo: APP_INFO,
+    appCapabilities: { availableDisplayModes: [DisplayMode.Inline, DisplayMode.Fullscreen] },
+    protocolVersion: PROTOCOL_VERSION,
+  });
+
+  applyContext(result?.hostContext ?? {});
+  notify(Method.Initialized, {});
+  watchSize();
+}
+
+start().catch((error) => showStatus(`Could not connect to the host: ${error.message}`));
+</script>
+</body>
+</html>

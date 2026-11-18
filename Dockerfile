@@ -13,7 +13,8 @@ COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
 # Runtime: package.json declares ESM; schema/ holds the snapshot card, found by
-# walking up from dist/src/mcp when the endpoint does not answer.
+# walking up from dist/src/mcp when the endpoint does not answer; ui/ holds the
+# class graph view, found the same way.
 FROM ${NODE_IMAGE}
 WORKDIR /app
 ENV NODE_ENV=production
@@ -22,6 +23,7 @@ COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist/src ./dist/src
 COPY schema ./schema
+COPY ui ./ui
 
 USER node
 EXPOSE 8080

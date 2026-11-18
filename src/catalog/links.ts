@@ -135,6 +135,27 @@ export class PortalLinks {
     return links;
   }
 
+  /**
+   * Pages for terms whose types the caller already read from one content
+   * graph. Checking them here instead would list every term in a URL, and a
+   * class graph's few hundred outgrow the endpoint's limit (414 at 12 KB).
+   */
+  async forTyped(graph: string, terms: TypedTerm[]): Promise<Map<string, string>> {
+    const pages = new Map<string, string>();
+
+    const termType = (await this.termTypes([graph])).get(graph);
+    if (!termType) {
+      return pages;
+    }
+
+    for (const { iri, types } of terms) {
+      if (types.includes(termType)) {
+        pages.set(iri, this.termPage({ graph, iri }));
+      }
+    }
+    return pages;
+  }
+
   private termPage({ graph, iri }: Candidate): string {
     const acronym = graph.slice(CONTENT_GRAPH_PREFIX.length).split(SUBMISSION_PATH)[0] ?? "";
     return (
@@ -216,6 +237,12 @@ export class PortalLinks {
 
 /** A portal page per IRI; a list when the IRI is a class in several ontologies. */
 export type PortalLinkMap = Record<string, string | string[]>;
+
+/** A term and every rdf:type its content graph gives it. */
+export interface TypedTerm {
+  iri: string;
+  types: string[];
+}
 
 /** An IRI from a row, and the content graph that row read. */
 interface Candidate {

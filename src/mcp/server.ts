@@ -20,6 +20,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -30,13 +31,14 @@ import { z } from "zod";
 import { CardService } from "../catalog/card.js";
 import { Catalog } from "../catalog/catalog.js";
 import { QueryService } from "../catalog/execution.js";
+import { ClassGraphService, GraphOutcome } from "../catalog/graph.js";
 import { PortalLinks } from "../catalog/links.js";
 import { portalFromEnv } from "../catalog/portal.js";
 import { prefixBlock } from "../catalog/vocabulary.js";
 import { SparqlEndpoint } from "../sparql/endpoint.js";
 import { EXAMPLES, linkRule, orientation } from "./guidance.js";
 import { serveHttp } from "./http.js";
-import { findSchemaCard } from "./paths.js";
+import { findClassGraphView, findSchemaCard } from "./paths.js";
 import { logged, watchSession } from "./usage.js";
 
 const SERVER_NAME = "ontoportal-sparql";
@@ -47,6 +49,7 @@ enum ToolName {
   ResolveOntology = "resolve_ontology",
   RunSparql = "run_sparql",
   ListTerms = "list_terms",
+  ShowClassGraph = "show_class_graph",
 }
 
 enum Transport {
@@ -66,6 +69,16 @@ const EXAMPLES_URI = "ontoportal://examples";
 
 const MARKDOWN = "text/markdown";
 
+/**
+ * MCP Apps: a tool names an HTML view by its ui:// resource, and a host that
+ * supports the extension renders the tool's result in it, in a sandboxed
+ * iframe. Other hosts ignore the metadata and show the text.
+ */
+const CLASS_GRAPH_URI = "ui://ontoportal-sparql/class-graph.html";
+const MCP_APP = "text/html;profile=mcp-app";
+/** The pre-GA spelling of _meta.ui.resourceUri, which some hosts still read. The SDK sets both. */
+const LEGACY_RESOURCE_URI_KEY = "ui/resourceUri";
+
 /** Outcomes the host model should treat as "fix it and call me again". */
 const REPAIRABLE = new Set(["rejected", "invalid", "timeout", "unavailable"]);
 
@@ -78,6 +91,7 @@ interface Services {
   catalog: Catalog;
   queries: QueryService;
   cards: CardService;
+  graphs: ClassGraphService;
   /** The portal's display name, as the model reads it in descriptions. */
   portal: string;
 }
@@ -87,17 +101,19 @@ function buildServices(): Services {
   const endpoint = new SparqlEndpoint({ url: portal.sparqlUrl });
   const cards = new CardService(endpoint, portal.name, findSchemaCard);
   const links = new PortalLinks(endpoint, portal.uiUrl);
+  const catalog = new Catalog(endpoint, links);
 
   return {
-    catalog: new Catalog(endpoint, links),
+    catalog,
     queries: new QueryService(endpoint, cards, links),
     cards,
+    graphs: new ClassGraphService(endpoint, catalog, links),
     portal: portal.name,
   };
 }
 
 function buildServer(
-  { catalog, queries, cards, portal }: Services,
+  { catalog, queries, cards, graphs, portal }: Services,
   session: string,
 ): McpServer {
   // Hosts that honour server instructions put them in the system prompt; the
@@ -134,6 +150,26 @@ function buildServer(
     },
     async () => ({
       contents: [{ uri: EXAMPLES_URI, mimeType: MARKDOWN, text: EXAMPLES }],
+    }),
+  );
+
+  server.registerResource(
+    "class-graph-view",
+    CLASS_GRAPH_URI,
+    {
+      title: "Class graph",
+      description: `Interactive view of ${ToolName.ShowClassGraph}'s result, for hosts that render MCP Apps.`,
+      mimeType: MCP_APP,
+    },
+    async () => ({
+      contents: [
+        {
+          uri: CLASS_GRAPH_URI,
+          mimeType: MCP_APP,
+          text: await readFile(findClassGraphView(), "utf8"),
+          _meta: { ui: { prefersBorder: true } },
+        },
+      ],
     }),
   );
 
@@ -239,6 +275,56 @@ function buildServer(
     logged(session, ToolName.ListTerms, async ({ kind }) =>
       text(JSON.stringify(await catalog.listTerms(kind), null, 2)),
     ),
+  );
+
+  server.registerTool(
+    ToolName.ShowClassGraph,
+    {
+      title: "Show a class in its hierarchy",
+      description:
+        "Draw a class or concept of one ontology in context, as the portal's Graph " +
+        "tab does: its ancestors up to the roots, and the terms it points to " +
+        "through other properties (e.g. 'capable of'), with their ancestors. Hosts " +
+        "that render MCP Apps show an interactive graph; the same nodes and edges " +
+        "come back as JSON, each node with its portal page. Use it when the user " +
+        "asks to see, show or visualise a class, or where it sits. Get the IRI from " +
+        "a query on the content graph resolve_ontology returns, never by guessing.",
+      inputSchema: {
+        ontology: z.string().min(1).describe("The ontology's acronym, e.g. 'SFWO'"),
+        iri: z
+          .string()
+          .min(1)
+          .describe("The class or concept IRI, e.g. 'http://purl.obolibrary.org/obo/ECOCORE_00000010'"),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+      _meta: {
+        ui: { resourceUri: CLASS_GRAPH_URI },
+        [LEGACY_RESOURCE_URI_KEY]: CLASS_GRAPH_URI,
+      },
+    },
+    logged(session, ToolName.ShowClassGraph, async ({ ontology, iri }, note) => {
+      const result = await graphs.build(ontology, iri);
+      note({ outcome: result.outcome });
+
+      if (result.outcome === GraphOutcome.UnknownOntology) {
+        return text(`No ontology has the acronym "${ontology}". Find it with resolve_ontology.`, true);
+      }
+
+      if (result.outcome === GraphOutcome.UnknownClass) {
+        return text(
+          `${ontology}'s current submission has no term <${iri}>. Find its IRI with ` +
+            "run_sparql on the content graph resolve_ontology returns.",
+          true,
+        );
+      }
+
+      const { graph } = result;
+      note({ rows: graph.nodes.length, truncated: graph.truncated });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(graph, null, 2) }],
+        structuredContent: { ...graph },
+      };
+    }),
   );
 
   // --- Prompt: a ready-made framing for hosts that surface slash commands ----

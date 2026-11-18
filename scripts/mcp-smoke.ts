@@ -57,6 +57,13 @@ process.on("exit", () => {
 
 const SMOKE_CLIENT = "smoke";
 
+/** SFWO's heterotroph: is-a organism, and capable of heterotrophy. */
+const GRAPH_ONTOLOGY = "SFWO";
+const GRAPH_CLASS = "http://purl.obolibrary.org/obo/ECOCORE_00000010";
+const GRAPH_RELATED = "http://purl.obolibrary.org/obo/ECOCORE_00000011";
+const CLASS_GRAPH_URI = "ui://ontoportal-sparql/class-graph.html";
+const MCP_APP = "text/html;profile=mcp-app";
+
 /** A usage event the server wrote to stderr; see src/mcp/usage.ts. */
 type UsageEvent = Record<string, unknown>;
 
@@ -169,8 +176,8 @@ async function main(): Promise<void> {
   const { tools } = await client.listTools();
   const names = tools.map((tool) => tool.name).sort();
   check(
-    "exposes the four tools",
-    ["get_schema_card", "list_terms", "resolve_ontology", "run_sparql"].every((name) =>
+    "exposes the five tools",
+    ["get_schema_card", "list_terms", "resolve_ontology", "run_sparql", "show_class_graph"].every((name) =>
       names.includes(name),
     ),
     names.join(", "),
@@ -188,9 +195,24 @@ async function main(): Promise<void> {
 
   const { resources } = await client.listResources();
   check(
-    "exposes both resources",
-    resources.length === 2,
+    "exposes the card, the examples and the class graph view",
+    resources.length === 3,
     resources.map((resource) => resource.uri).join(", "),
+  );
+
+  const graphTool = tools.find((tool) => tool.name === "show_class_graph");
+  const graphUi = graphTool?._meta?.ui as { resourceUri?: string } | undefined;
+  check(
+    "show_class_graph names its view, in both spellings",
+    graphUi?.resourceUri === CLASS_GRAPH_URI && graphTool?._meta?.["ui/resourceUri"] === CLASS_GRAPH_URI,
+    JSON.stringify(graphTool?._meta),
+  );
+
+  const view = (await client.readResource({ uri: CLASS_GRAPH_URI })).contents[0];
+  check(
+    "the view is an MCP App that opens the handshake",
+    view?.mimeType === MCP_APP && "text" in view && String(view.text).includes("ui/initialize"),
+    String(view?.mimeType),
   );
 
   const { prompts } = await client.listPrompts();
@@ -352,6 +374,33 @@ async function main(): Promise<void> {
     arguments: { kind: "category" },
   });
   check("list_terms returns categories", firstText(terms.content).includes("Agronomy"));
+
+  const drawn = await client.callTool({
+    name: "show_class_graph",
+    arguments: { ontology: GRAPH_ONTOLOGY, iri: GRAPH_CLASS },
+  });
+  const graph = drawn.structuredContent as
+    | { nodes: { iri: string; portalUrl?: string }[]; edges: { from: string; to: string; kind: string; label?: string }[] }
+    | undefined;
+  check(
+    "show_class_graph draws the class's relation and its ancestors",
+    graph?.edges.some((edge) => edge.to === GRAPH_RELATED && edge.label === "capable of") === true &&
+      graph.edges.some((edge) => edge.from === GRAPH_CLASS && edge.kind === "is-a"),
+    `${graph?.nodes.length ?? 0} nodes, ${graph?.edges.length ?? 0} edges`,
+  );
+  check(
+    "show_class_graph links its nodes to portal pages",
+    graph?.nodes.find((node) => node.iri === GRAPH_CLASS)?.portalUrl?.includes("/ontologies/SFWO?p=classes") === true,
+  );
+
+  const unknownClass = await client.callTool({
+    name: "show_class_graph",
+    arguments: { ontology: GRAPH_ONTOLOGY, iri: "http://example.org/no-such-class" },
+  });
+  check(
+    "show_class_graph reports an unknown class as an error to fix",
+    unknownClass.isError === true && firstText(unknownClass.content).includes("no term"),
+  );
 
   process.stdout.write("\nprompt\n");
 

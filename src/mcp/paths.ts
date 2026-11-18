@@ -13,22 +13,28 @@ import { dirname, join, parse } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CARD_RELATIVE_PATH = join("schema", "schema-card.md");
+const CLASS_GRAPH_RELATIVE_PATH = join("ui", "class-graph.html");
 
 export function findSchemaCard(): string {
+  return findUp(CARD_RELATIVE_PATH, "Run `npm run schema:gen`.");
+}
+
+export function findClassGraphView(): string {
+  return findUp(CLASS_GRAPH_RELATIVE_PATH, "Ship the ui/ directory with dist/.");
+}
+
+function findUp(relativePath: string, hint: string): string {
   let directory = dirname(fileURLToPath(import.meta.url));
   const { root } = parse(directory);
 
   while (true) {
-    const candidate = join(directory, CARD_RELATIVE_PATH);
+    const candidate = join(directory, relativePath);
     if (existsSync(candidate)) {
       return candidate;
     }
 
     if (directory === root) {
-      throw new Error(
-        `could not find ${CARD_RELATIVE_PATH} above ${fileURLToPath(import.meta.url)}. ` +
-          "Run `npm run schema:gen`.",
-      );
+      throw new Error(`could not find ${relativePath} above ${fileURLToPath(import.meta.url)}. ${hint}`);
     }
 
     directory = dirname(directory);

@@ -7,118 +7,26 @@
       this page ──tools/call show_class_graph──▶ host ──▶ server   (double-click)
       this page ──ui/open-link──▶ host                              (portal page)
 
-  Self-contained on purpose: the default CSP blocks every other origin, and
-  declaring a CDN would make the view depend on it.
+  The host gets one self-contained document: the server inlines mcp-app.css
+  and mcp-app.js, because the default CSP blocks every other request.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Class graph</title>
+<link rel="stylesheet" href="mcp-app.css">
 <style>
   :root {
-    color-scheme: light dark;
-
-    /* Own palette: used where the host passes no theme variables. */
-    --own-bg: #ffffff;
-    --own-surface: #f5f5f2;
-    --own-text: #1c1c1a;
-    --own-muted: #66665f;
-    --own-line: #c8c7c0;
-    --own-accent: #2d6a4a;
-    --own-on-accent: #ffffff;
     --own-relation: #a9501b;
-
-    --bg: var(--color-background-primary, var(--own-bg));
-    --surface: var(--color-background-secondary, var(--own-surface));
-    --text: var(--color-text-primary, var(--own-text));
-    --muted: var(--color-text-secondary, var(--own-muted));
-    --line: var(--color-border-primary, var(--own-line));
-    --accent: var(--own-accent);
-    --on-accent: var(--own-on-accent);
     --relation: var(--own-relation);
-    --sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
-    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   }
 
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --own-bg: #1b1b1a;
-      --own-surface: #252523;
-      --own-text: #ecebe5;
-      --own-muted: #a3a29a;
-      --own-line: #4c4b46;
-      --own-accent: #79c49a;
-      --own-on-accent: #0f2419;
-      --own-relation: #e8955f;
-    }
+    :root:not([data-theme="light"]) { --own-relation: #e8955f; }
   }
 
-  :root[data-theme="dark"] {
-    --own-bg: #1b1b1a;
-    --own-surface: #252523;
-    --own-text: #ecebe5;
-    --own-muted: #a3a29a;
-    --own-line: #4c4b46;
-    --own-accent: #79c49a;
-    --own-on-accent: #0f2419;
-    --own-relation: #e8955f;
-  }
-
-  * { box-sizing: border-box; }
-
-  html, body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 13px/1.4 var(--sans);
-  }
-
-  body {
-    display: flex;
-    flex-direction: column;
-    height: var(--inline-height);
-    overflow: hidden;
-  }
-
-  /* Fullscreen, or a host that fixes the frame's height: fill it. */
-  :root.fills body { height: 100vh; }
-
-  button {
-    font: inherit;
-    color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 3px 10px;
-    cursor: pointer;
-  }
-  button:hover { background: var(--surface); }
-  button:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-
-  .bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--line);
-  }
-  .title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-  .title strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip {
-    font: 600 11px/1 var(--mono);
-    letter-spacing: 0.02em;
-    padding: 3px 6px;
-    border-radius: 4px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-  }
-  .muted { color: var(--muted); }
-  .tools { display: flex; gap: 4px; }
-  .tools button { min-width: 30px; }
+  :root[data-theme="dark"] { --own-relation: #e8955f; }
 
   main { position: relative; flex: 1; min-height: 0; background: var(--surface); }
   svg#canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; user-select: none; }
@@ -128,6 +36,7 @@
   .node rect { fill: var(--bg); stroke: var(--line); stroke-width: 1.25; }
   .node text { fill: var(--text); font: 500 13px var(--sans); }
   .node:hover rect { stroke: var(--accent); }
+  .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .node.related rect { stroke: var(--relation); stroke-width: 1.5; }
   .node.focus rect { fill: var(--accent); stroke: var(--accent); }
   .node.focus text { fill: var(--on-accent); font-weight: 600; }
@@ -146,19 +55,6 @@
   .dim { opacity: 0.28; }
   .node, .edge, .edge-label { transition: opacity 120ms ease; }
   @media (prefers-reduced-motion: reduce) { .node, .edge, .edge-label { transition: none; } }
-
-  #status {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0;
-    padding: 24px;
-    text-align: center;
-    color: var(--muted);
-    white-space: pre-wrap;
-  }
 
   #details {
     position: absolute;
@@ -179,16 +75,6 @@
   #details .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   #details .close { position: absolute; top: 8px; right: 8px; border: 0; padding: 2px 8px; background: transparent; }
 
-  #toast {
-    position: absolute;
-    right: 12px;
-    bottom: 12px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    background: var(--text);
-    color: var(--bg);
-  }
-
   .legend {
     display: flex;
     flex-wrap: wrap;
@@ -201,8 +87,6 @@
   }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .legend .hint { margin-left: auto; }
-
-  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -263,167 +147,27 @@
     <span class="hint">Click a class for details · double-click to graph it · drag to pan · ⌘/Ctrl+scroll to zoom</span>
   </footer>
 
+<script src="mcp-app.js"></script>
 <script>
 "use strict";
 
-// --- Protocol: JSON-RPC 2.0 over postMessage, MCP Apps 2026-01-26 -----------
-
-const PROTOCOL_VERSION = "2026-01-26";
 const APP_INFO = { name: "ontoportal-class-graph", version: "0.1.0" };
 
 /** The tool this view renders, unless the host names it in toolInfo. Matches ToolName in server.ts. */
 const GRAPH_TOOL = "show_class_graph";
 
-const Method = {
-  Initialize: "ui/initialize",
-  Initialized: "ui/notifications/initialized",
-  ToolInput: "ui/notifications/tool-input",
-  ToolResult: "ui/notifications/tool-result",
-  ToolCancelled: "ui/notifications/tool-cancelled",
-  ContextChanged: "ui/notifications/host-context-changed",
-  Teardown: "ui/resource-teardown",
-  Ping: "ping",
-  SizeChanged: "ui/notifications/size-changed",
-  OpenLink: "ui/open-link",
-  DisplayMode: "ui/request-display-mode",
-  CallTool: "tools/call",
-};
+const { DisplayMode, Method } = McpApp;
 
-const DisplayMode = { Inline: "inline", Fullscreen: "fullscreen" };
-
-/** JSON-RPC's code for a method nobody handles. */
-const METHOD_NOT_FOUND = -32601;
-
-let nextId = 1;
-const pending = new Map();
-
-function send(message) {
-  window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*");
-}
-
-function request(method, params) {
-  const id = nextId++;
-  send({ id, method, params });
-  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-}
-
-function notify(method, params) {
-  send({ method, params });
-}
-
-/** What the host may send. A request gets its handler's return value as the answer. */
-const handlers = {
-  [Method.ToolInput]: ({ arguments: args }) => {
-    showStatus(`Graphing ${args?.iri ?? "the class"} in ${args?.ontology ?? "its ontology"}…`);
-  },
-  [Method.ToolResult]: (result) => showResult(result),
-  [Method.ToolCancelled]: ({ reason }) => showStatus(`Cancelled${reason ? `: ${reason}` : ""}.`),
-  [Method.ContextChanged]: (changes) => applyContext(changes),
-  [Method.Teardown]: () => ({}),
-  [Method.Ping]: () => ({}),
-};
-
-window.addEventListener("message", (event) => {
-  if (event.source !== window.parent) {
-    return;
-  }
-
-  const message = event.data;
-  if (!message || message.jsonrpc !== "2.0") {
-    return;
-  }
-
-  // An answer to one of our requests.
-  if (message.method === undefined) {
-    const waiting = pending.get(message.id);
-    if (!waiting) {
-      return;
-    }
-
-    pending.delete(message.id);
-    if (message.error) {
-      waiting.reject(new Error(message.error.message));
-    } else {
-      waiting.resolve(message.result);
-    }
-    return;
-  }
-
-  // A notification wants nothing back; a request wants an answer or an error.
-  const handler = handlers[message.method];
-  const answer = handler ? handler(message.params ?? {}) : undefined;
-  if (message.id === undefined) {
-    return;
-  }
-
-  if (!handler) {
-    send({ id: message.id, error: { code: METHOD_NOT_FOUND, message: `Unknown method ${message.method}` } });
-    return;
-  }
-  send({ id: message.id, result: answer ?? {} });
+McpApp.on(Method.ToolInput, ({ arguments: args }) => {
+  showStatus(`Graphing ${args?.iri ?? "the class"} in ${args?.ontology ?? "its ontology"}…`);
 });
+McpApp.on(Method.ToolResult, (result) => showResult(result));
+McpApp.on(Method.ToolCancelled, ({ reason }) => showStatus(`Cancelled${reason ? `: ${reason}` : ""}.`));
 
-// --- Host context: theme, fonts, display mode ----------------------------------
-
-/** The frame's height inline, unless the host caps it lower. */
-const INLINE_HEIGHT = 560;
-document.documentElement.style.setProperty("--inline-height", `${INLINE_HEIGHT}px`);
-
-const context = {};
-let fontsApplied = false;
-
-function applyContext(changes) {
-  Object.assign(context, changes);
-  const root = document.documentElement;
-
-  if (context.theme) {
-    root.dataset.theme = context.theme;
-    root.style.colorScheme = context.theme;
-  }
-
-  for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
-    if (value) {
-      root.style.setProperty(name, value);
-    }
-  }
-
-  if (context.styles?.css?.fonts && !fontsApplied) {
-    const style = document.createElement("style");
-    style.textContent = context.styles.css.fonts;
-    document.head.append(style);
-    fontsApplied = true;
-  }
-
-  // A fixed height or fullscreen gives us the frame; otherwise we pick our own, within any cap.
-  const dimensions = context.containerDimensions ?? {};
-  root.classList.toggle("fills", context.displayMode === DisplayMode.Fullscreen || "height" in dimensions);
-  if (dimensions.maxHeight) {
-    root.style.setProperty("--inline-height", `${Math.min(INLINE_HEIGHT, dimensions.maxHeight)}px`);
-  }
-
-  const canExpand = (context.availableDisplayModes ?? []).includes(DisplayMode.Fullscreen);
-  ui.expand.hidden = !canExpand;
+McpApp.onContext((context) => {
+  ui.expand.hidden = !(context.availableDisplayModes ?? []).includes(DisplayMode.Fullscreen);
   ui.expand.textContent = context.displayMode === DisplayMode.Fullscreen ? "Collapse" : "Expand";
-}
-
-/** Tell the host our size whenever it changes; it sizes the frame to match. */
-function watchSize() {
-  let last = "";
-
-  const report = () => {
-    const width = Math.ceil(window.innerWidth);
-    const height = Math.ceil(document.documentElement.getBoundingClientRect().height);
-    if (`${width}x${height}` === last) {
-      return;
-    }
-
-    last = `${width}x${height}`;
-    notify(Method.SizeChanged, { width, height });
-  };
-
-  new ResizeObserver(() => requestAnimationFrame(report)).observe(document.body);
-  report();
-}
+});
 
 // --- Elements ----------------------------------------------------------------
 
@@ -1015,10 +759,9 @@ ui.back.addEventListener("click", () => {
   }
 });
 ui.expand.addEventListener("click", async () => {
-  const mode = context.displayMode === DisplayMode.Fullscreen ? DisplayMode.Inline : DisplayMode.Fullscreen;
+  const mode = McpApp.context.displayMode === DisplayMode.Fullscreen ? DisplayMode.Inline : DisplayMode.Fullscreen;
   try {
-    const result = await request(Method.DisplayMode, { mode });
-    applyContext({ displayMode: result?.mode ?? context.displayMode });
+    await McpApp.requestDisplayMode(mode);
     requestAnimationFrame(() => fit(FitMode.Readable));
   } catch (error) {
     toast(`The host kept the current size: ${error.message}`);
@@ -1074,9 +817,9 @@ async function regraph(iri) {
   const previous = current;
   toast("Loading…");
   try {
-    const result = await request(Method.CallTool, {
-      name: context.toolInfo?.tool?.name ?? GRAPH_TOOL,
-      arguments: { ontology: previous.ontology, iri },
+    const result = await McpApp.callTool(McpApp.context.toolInfo?.tool?.name ?? GRAPH_TOOL, {
+      ontology: previous.ontology,
+      iri,
     });
 
     if (result?.isError || !result?.structuredContent) {
@@ -1094,7 +837,7 @@ async function regraph(iri) {
 
 async function openLink(url) {
   try {
-    await request(Method.OpenLink, { url });
+    await McpApp.openLink(url);
   } catch (error) {
     toast(`The host did not open the link: ${error.message}`);
   }
@@ -1102,19 +845,7 @@ async function openLink(url) {
 
 // --- Start -----------------------------------------------------------------------
 
-async function start() {
-  const result = await request(Method.Initialize, {
-    appInfo: APP_INFO,
-    appCapabilities: { availableDisplayModes: [DisplayMode.Inline, DisplayMode.Fullscreen] },
-    protocolVersion: PROTOCOL_VERSION,
-  });
-
-  applyContext(result?.hostContext ?? {});
-  notify(Method.Initialized, {});
-  watchSize();
-}
-
-start().catch((error) => showStatus(`Could not connect to the host: ${error.message}`));
+McpApp.connect(APP_INFO).catch((error) => showStatus(`Could not connect to the host: ${error.message}`));
 </script>
 </body>
 </html>

@@ -13,14 +13,15 @@ import { dirname, join, parse } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const CARD_RELATIVE_PATH = join("schema", "schema-card.md");
-const CLASS_GRAPH_RELATIVE_PATH = join("ui", "class-graph.html");
+const VIEWS_DIRECTORY = "ui";
 
 export function findSchemaCard(): string {
   return findUp(CARD_RELATIVE_PATH, "Run `npm run schema:gen`.");
 }
 
-export function findClassGraphView(): string {
-  return findUp(CLASS_GRAPH_RELATIVE_PATH, "Ship the ui/ directory with dist/.");
+/** A file of the MCP Apps views, e.g. "class-graph.html". */
+export function findView(name: string): string {
+  return findUp(join(VIEWS_DIRECTORY, name), "Ship the ui/ directory with dist/.");
 }
 
 function findUp(relativePath: string, hint: string): string {

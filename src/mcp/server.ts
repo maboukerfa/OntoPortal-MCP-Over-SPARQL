@@ -20,7 +20,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -31,15 +30,18 @@ import { z } from "zod";
 import { CardService } from "../catalog/card.js";
 import { Catalog } from "../catalog/catalog.js";
 import { QueryService } from "../catalog/execution.js";
+import { FairnessOutcome, FairnessService, summarize } from "../catalog/fairness.js";
 import { ClassGraphService, GraphOutcome } from "../catalog/graph.js";
 import { PortalLinks } from "../catalog/links.js";
 import { portalFromEnv } from "../catalog/portal.js";
 import { prefixBlock } from "../catalog/vocabulary.js";
+import { OfaireClient } from "../fairness/ofaire.js";
 import { SparqlEndpoint } from "../sparql/endpoint.js";
 import { EXAMPLES, linkRule, orientation } from "./guidance.js";
 import { serveHttp } from "./http.js";
-import { findClassGraphView, findSchemaCard } from "./paths.js";
+import { findSchemaCard } from "./paths.js";
 import { logged, watchSession } from "./usage.js";
+import { loadView } from "./views.js";
 
 const SERVER_NAME = "ontoportal-sparql";
 const SERVER_VERSION = "0.1.0";
@@ -50,6 +52,7 @@ enum ToolName {
   RunSparql = "run_sparql",
   ListTerms = "list_terms",
   ShowClassGraph = "show_class_graph",
+  ShowFairScore = "show_fair_score",
 }
 
 enum Transport {
@@ -74,10 +77,58 @@ const MARKDOWN = "text/markdown";
  * supports the extension renders the tool's result in it, in a sandboxed
  * iframe. Other hosts ignore the metadata and show the text.
  */
-const CLASS_GRAPH_URI = "ui://ontoportal-sparql/class-graph.html";
 const MCP_APP = "text/html;profile=mcp-app";
 /** The pre-GA spelling of _meta.ui.resourceUri, which some hosts still read. The SDK sets both. */
 const LEGACY_RESOURCE_URI_KEY = "ui/resourceUri";
+
+interface View {
+  /** The resource's name, and its file under ui/ with .html. */
+  name: string;
+  uri: string;
+  title: string;
+  tool: ToolName;
+}
+
+const CLASS_GRAPH_VIEW: View = {
+  name: "class-graph",
+  uri: "ui://ontoportal-sparql/class-graph.html",
+  title: "Class graph",
+  tool: ToolName.ShowClassGraph,
+};
+
+const FAIR_SCORE_VIEW: View = {
+  name: "fair-score",
+  uri: "ui://ontoportal-sparql/fair-score.html",
+  title: "FAIR score",
+  tool: ToolName.ShowFairScore,
+};
+
+/** A tool's _meta naming its view, in both spellings. */
+function viewMeta(view: View) {
+  return { ui: { resourceUri: view.uri }, [LEGACY_RESOURCE_URI_KEY]: view.uri };
+}
+
+function registerView(server: McpServer, view: View): void {
+  server.registerResource(
+    view.name,
+    view.uri,
+    {
+      title: view.title,
+      description: `Interactive view of ${view.tool}'s result, for hosts that render MCP Apps.`,
+      mimeType: MCP_APP,
+    },
+    async () => ({
+      contents: [
+        {
+          uri: view.uri,
+          mimeType: MCP_APP,
+          text: await loadView(`${view.name}.html`),
+          _meta: { ui: { prefersBorder: true } },
+        },
+      ],
+    }),
+  );
+}
 
 /** Outcomes the host model should treat as "fix it and call me again". */
 const REPAIRABLE = new Set(["rejected", "invalid", "timeout", "unavailable"]);
@@ -92,6 +143,7 @@ interface Services {
   queries: QueryService;
   cards: CardService;
   graphs: ClassGraphService;
+  fairness: FairnessService;
   /** The portal's display name, as the model reads it in descriptions. */
   portal: string;
 }
@@ -108,12 +160,13 @@ function buildServices(): Services {
     queries: new QueryService(endpoint, cards, links),
     cards,
     graphs: new ClassGraphService(endpoint, catalog, links),
+    fairness: new FairnessService(catalog, new OfaireClient({ url: portal.fairnessUrl })),
     portal: portal.name,
   };
 }
 
 function buildServer(
-  { catalog, queries, cards, graphs, portal }: Services,
+  { catalog, queries, cards, graphs, fairness, portal }: Services,
   session: string,
 ): McpServer {
   // Hosts that honour server instructions put them in the system prompt; the
@@ -153,25 +206,8 @@ function buildServer(
     }),
   );
 
-  server.registerResource(
-    "class-graph-view",
-    CLASS_GRAPH_URI,
-    {
-      title: "Class graph",
-      description: `Interactive view of ${ToolName.ShowClassGraph}'s result, for hosts that render MCP Apps.`,
-      mimeType: MCP_APP,
-    },
-    async () => ({
-      contents: [
-        {
-          uri: CLASS_GRAPH_URI,
-          mimeType: MCP_APP,
-          text: await readFile(findClassGraphView(), "utf8"),
-          _meta: { ui: { prefersBorder: true } },
-        },
-      ],
-    }),
-  );
+  registerView(server, CLASS_GRAPH_VIEW);
+  registerView(server, FAIR_SCORE_VIEW);
 
   // --- Tools ----------------------------------------------------------------
 
@@ -297,10 +333,7 @@ function buildServer(
           .describe("The class or concept IRI, e.g. 'http://purl.obolibrary.org/obo/ECOCORE_00000010'"),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
-      _meta: {
-        ui: { resourceUri: CLASS_GRAPH_URI },
-        [LEGACY_RESOURCE_URI_KEY]: CLASS_GRAPH_URI,
-      },
+      _meta: viewMeta(CLASS_GRAPH_VIEW),
     },
     logged(session, ToolName.ShowClassGraph, async ({ ontology, iri }, note) => {
       const result = await graphs.build(ontology, iri);
@@ -323,6 +356,47 @@ function buildServer(
       return {
         content: [{ type: "text" as const, text: JSON.stringify(graph, null, 2) }],
         structuredContent: { ...graph },
+      };
+    }),
+  );
+
+  server.registerTool(
+    ToolName.ShowFairScore,
+    {
+      title: "Show an ontology's FAIR score",
+      description:
+        `Assess how FAIR (Findable, Accessible, Interoperable, Reusable) an ontology is, ` +
+        `with O'FAIRe on its ${portal} metadata record, as the FAIR score section of ` +
+        "its page shows: the total, each category and principle, and every question it " +
+        "misses with the metadata property that question checks, which is what a " +
+        "curator fills to raise the score. Hosts that render MCP Apps show radar and " +
+        "bar charts. Use it for questions about an ontology's FAIRness, metadata " +
+        "quality or score.",
+      inputSchema: {
+        ontology: z.string().min(1).describe("The ontology's acronym, e.g. 'WEBVOC'; case does not matter"),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+      _meta: viewMeta(FAIR_SCORE_VIEW),
+    },
+    logged(session, ToolName.ShowFairScore, async ({ ontology }, note) => {
+      const result = await fairness.assess(ontology);
+      note({ outcome: result.outcome });
+
+      if (result.outcome === FairnessOutcome.UnknownOntology) {
+        return text(`No ontology has the acronym "${ontology}". Find it with resolve_ontology.`, true);
+      }
+
+      if (result.outcome === FairnessOutcome.Unavailable) {
+        return text(
+          `O'FAIRe did not assess ${ontology}: ${result.message}. Retry once, then tell ` +
+            "the user the assessment service is unreachable.",
+          true,
+        );
+      }
+
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(summarize(result.report), null, 2) }],
+        structuredContent: { ...result.report },
       };
     }),
   );

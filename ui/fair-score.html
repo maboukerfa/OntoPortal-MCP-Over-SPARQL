@@ -1,0 +1,518 @@
+<!doctype html>
+<!--
+  MCP Apps view for show_fair_score: O'FAIRe's assessment of one ontology, as
+  the portal's FAIR score section shows it.
+
+      radar  every FAIR principle, as % of its credits
+      bars   every category's credits: obtained, missed, not supported yet
+      list   the questions behind them, missed ones first
+
+  Click a principle on the radar, or a category, to list only its questions.
+  The host gets one self-contained document: the server inlines mcp-app.css
+  and mcp-app.js, because the default CSP blocks every other request.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAIR score</title>
+<link rel="stylesheet" href="mcp-app.css">
+<style>
+  :root {
+    --own-obtained: #3b8a58;
+    --own-missed: #cf9226;
+    --own-unsupported: #d3d2ca;
+
+    --obtained: var(--own-obtained);
+    --missed: var(--own-missed);
+    --unsupported: var(--own-unsupported);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --own-obtained: #6cbf8c;
+      --own-missed: #e2b04f;
+      --own-unsupported: #4f4e48;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --own-obtained: #6cbf8c;
+    --own-missed: #e2b04f;
+    --own-unsupported: #4f4e48;
+  }
+
+  main { position: relative; flex: 1; min-height: 0; overflow: auto; }
+
+  .total {
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .charts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 8px 28px;
+    align-items: center;
+    padding: 12px 16px 8px;
+  }
+  @media (max-width: 640px) {
+    .charts { grid-template-columns: 1fr; }
+  }
+
+  #radar { display: block; width: 100%; max-width: 330px; height: auto; margin: 0 auto; }
+  .ring, .spoke { fill: none; stroke: var(--line); stroke-width: 1; }
+  .ring-label { fill: var(--muted); font: 9px var(--sans); }
+  .area { fill: var(--accent); fill-opacity: 0.16; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+  .dot { fill: var(--accent); cursor: pointer; }
+  .axis-label { fill: var(--muted); font: 600 11px var(--sans); cursor: pointer; }
+  .axis-label:hover, .axis-label.active { fill: var(--text); }
+  .axis-label.active { text-decoration: underline; }
+
+  .bars {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+  .category { border: 0; padding: 0; background: none; color: var(--muted); text-align: right; }
+  .category:hover, .category.active { background: none; color: var(--text); }
+  .category.active { text-decoration: underline; }
+  .track { display: flex; height: 20px; border-radius: 4px; overflow: hidden; background: var(--surface); }
+  .segment.obtained { background: var(--obtained); }
+  .segment.missed { background: var(--missed); }
+  .segment.unsupported { background: var(--unsupported); }
+  .value { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .key { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 2px; vertical-align: -1px; }
+  .swatch.obtained { background: var(--obtained); }
+  .swatch.missed { background: var(--missed); }
+  .swatch.unsupported { background: var(--unsupported); }
+
+  .filters {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .filters button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
+  .scope { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .scope button { border: 0; padding: 2px 6px; background: transparent; }
+
+  .questions { list-style: none; margin: 0; padding: 0 16px 16px; }
+  .principle { display: flex; align-items: baseline; gap: 8px; margin: 16px 0 4px; }
+  .principle .label { font-weight: 600; }
+  .principle .muted { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .question {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px;
+    gap: 4px 16px;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+  }
+  .question p { margin: 0; }
+  .question .why { margin-top: 3px; color: var(--muted); }
+  .question .props { margin-top: 4px; color: var(--muted); font: 11px/1.45 var(--mono); overflow-wrap: anywhere; white-space: pre-line; }
+  .question.unassessable .text { color: var(--muted); }
+  .credit { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .meter { height: 5px; margin-top: 5px; border-radius: 3px; overflow: hidden; background: var(--missed); }
+  .meter span { display: block; height: 100%; background: var(--obtained); }
+  .tag { display: inline-block; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 11px; }
+  .empty { padding: 16px 0; color: var(--muted); }
+
+  /* The list scrolls; the message stays in view. */
+  #toast { position: fixed; }
+</style>
+</head>
+<body>
+  <header class="bar">
+    <div class="title">
+      <span class="chip" id="ontology" hidden></span>
+      <strong id="name">FAIR score</strong>
+      <span class="muted" id="methodology"></span>
+    </div>
+    <div class="tools">
+      <span class="total" id="total" hidden></span>
+      <button id="open" type="button" hidden>Open in portal</button>
+      <button id="expand" type="button" hidden>Expand</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="charts" id="charts" hidden>
+      <svg id="radar" viewBox="-170 -142 340 284" role="img" aria-label="Score per FAIR principle"></svg>
+      <div class="bars" id="bars"></div>
+    </section>
+
+    <nav class="filters" id="filters" hidden>
+      <button id="show-missed" type="button" aria-pressed="true">Missed</button>
+      <button id="show-all" type="button" aria-pressed="false">All questions</button>
+      <span class="scope" id="scope" hidden>
+        <span class="chip" id="scope-label"></span>
+        <button id="scope-clear" type="button" aria-label="Show every principle">✕</button>
+      </span>
+    </nav>
+
+    <ul class="questions" id="questions"></ul>
+
+    <p id="status">Waiting for the assessment…</p>
+    <div id="toast" role="status" hidden></div>
+  </main>
+
+<script src="mcp-app.js"></script>
+<script>
+"use strict";
+
+const APP_INFO = { name: "ontoportal-fair-score", version: "0.1.0" };
+
+/** Taller than the graph: the charts sit above the question list. */
+const INLINE_HEIGHT = 640;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const { DisplayMode, Method } = McpApp;
+
+const Filter = { Missed: "missed", All: "all" };
+
+/** The radar: O'FAIRe scores out of 100, ringed every 20. */
+const RINGS = [20, 40, 60, 80, 100];
+const RADIUS = 110;
+const LABEL_GAP = 15;
+const DOT_RADIUS = 3.5;
+/** Ring values sit beside the top spoke, clear of its F1 label. */
+const RING_LABEL_OFFSET = 5;
+/** Below this |cos| a label sits centred over its spoke rather than beside it. */
+const CENTRED_LABEL = 0.2;
+
+const ui = {
+  ontology: document.getElementById("ontology"),
+  name: document.getElementById("name"),
+  methodology: document.getElementById("methodology"),
+  total: document.getElementById("total"),
+  open: document.getElementById("open"),
+  expand: document.getElementById("expand"),
+  main: document.getElementById("main"),
+  charts: document.getElementById("charts"),
+  radar: document.getElementById("radar"),
+  bars: document.getElementById("bars"),
+  filters: document.getElementById("filters"),
+  showMissed: document.getElementById("show-missed"),
+  showAll: document.getElementById("show-all"),
+  scope: document.getElementById("scope"),
+  scopeLabel: document.getElementById("scope-label"),
+  scopeClear: document.getElementById("scope-clear"),
+  questions: document.getElementById("questions"),
+  status: document.getElementById("status"),
+  toast: document.getElementById("toast"),
+};
+
+let report = null;
+let filter = Filter.Missed;
+/** A principle id or a category name the list is narrowed to; null for everything. */
+let scope = null;
+
+McpApp.on(Method.ToolInput, ({ arguments: args }) => showStatus(`Assessing ${args?.ontology ?? "the ontology"}…`));
+McpApp.on(Method.ToolResult, (result) => showResult(result));
+McpApp.on(Method.ToolCancelled, ({ reason }) => showStatus(`Cancelled${reason ? `: ${reason}` : ""}.`));
+
+McpApp.onContext((context) => {
+  ui.expand.hidden = !(context.availableDisplayModes ?? []).includes(DisplayMode.Fullscreen);
+  ui.expand.textContent = context.displayMode === DisplayMode.Fullscreen ? "Collapse" : "Expand";
+});
+
+// --- Helpers -----------------------------------------------------------------------
+
+function showStatus(text) {
+  ui.status.textContent = text;
+  ui.status.hidden = false;
+}
+
+let toastTimer = 0;
+
+function toast(text) {
+  ui.toast.textContent = text;
+  ui.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { ui.toast.hidden = true; }, 3000);
+}
+
+/** O'FAIRe scores some credits in quarters: 62.75. */
+function credits(value) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/** A question that cost credits the portal could have awarded; a full principle misses none. Matches isMissed in fairness.ts. */
+function isMissed(question, principle) {
+  return question.assessable && question.score < question.maxCredits && principle.score < principle.maxCredits;
+}
+
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) {
+    node.className = className;
+  }
+  if (text !== undefined) {
+    node.textContent = text;
+  }
+  return node;
+}
+
+function svg(tag, attributes = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    node.setAttribute(name, String(value));
+  }
+  return node;
+}
+
+function principles() {
+  return report.categories.flatMap((category) => category.principles);
+}
+
+// --- Radar: one spoke per principle ---------------------------------------------------
+
+function drawRadar() {
+  const all = principles();
+  const angle = (i) => -Math.PI / 2 + (2 * Math.PI * i) / all.length;
+  const at = (i, radius) => ({ x: Math.cos(angle(i)) * radius, y: Math.sin(angle(i)) * radius });
+  const polygon = (radiusOf) => all.map((_, i) => at(i, radiusOf(i))).map(({ x, y }) => `${x},${y}`).join(" ");
+
+  ui.radar.replaceChildren();
+
+  for (const ring of RINGS) {
+    ui.radar.append(svg("polygon", { class: "ring", points: polygon(() => (RADIUS * ring) / 100) }));
+    const label = svg("text", { class: "ring-label", x: RING_LABEL_OFFSET, y: (-RADIUS * ring) / 100 - 2 });
+    label.textContent = ring;
+    ui.radar.append(label);
+  }
+
+  all.forEach((_, i) => {
+    const end = at(i, RADIUS);
+    ui.radar.append(svg("line", { class: "spoke", x1: 0, y1: 0, x2: end.x, y2: end.y }));
+  });
+
+  ui.radar.append(svg("polygon", { class: "area", points: polygon((i) => (RADIUS * all[i].percent) / 100) }));
+
+  all.forEach((principle, i) => {
+    const tip = `${principle.id} · ${principle.percent}% · ${credits(principle.score)} / ${credits(principle.maxCredits)} credits\n${principle.label}`;
+
+    const point = at(i, (RADIUS * principle.percent) / 100);
+    const dot = svg("circle", { class: "dot", cx: point.x, cy: point.y, r: DOT_RADIUS });
+    dot.append(Object.assign(svg("title"), { textContent: tip }));
+    dot.addEventListener("click", () => setScope(principle.id));
+    ui.radar.append(dot);
+
+    const cos = Math.cos(angle(i));
+    const place = at(i, RADIUS + LABEL_GAP);
+    const anchor = Math.abs(cos) < CENTRED_LABEL ? "middle" : cos > 0 ? "start" : "end";
+    const label = svg("text", { class: "axis-label", x: place.x, y: place.y, dy: "0.35em", "text-anchor": anchor });
+    label.dataset.scope = principle.id;
+    label.textContent = principle.id;
+    label.append(Object.assign(svg("title"), { textContent: tip }));
+    label.addEventListener("click", () => setScope(principle.id));
+    ui.radar.append(label);
+  });
+}
+
+// --- Bars: one per category, credits split three ways ----------------------------------
+
+function drawBars() {
+  ui.bars.replaceChildren();
+
+  for (const category of report.categories) {
+    const name = element("button", "category", category.name);
+    name.type = "button";
+    name.dataset.scope = category.name;
+    name.addEventListener("click", () => setScope(category.name));
+
+    // Shares of the category's credits; the portal's own numbers, as its FAIR section draws them.
+    const parts = [
+      ["obtained", "Obtained", category.score],
+      ["missed", "Missed", Math.max(0, category.portalMaxCredits - category.score)],
+      ["unsupported", "Not supported yet", Math.max(0, category.maxCredits - category.portalMaxCredits)],
+    ];
+    const track = element("div", "track");
+    for (const [kind, label, amount] of parts) {
+      const segment = element("div", `segment ${kind}`);
+      segment.style.width = `${(100 * amount) / category.maxCredits}%`;
+      segment.title = `${label}: ${credits(amount)} credits`;
+      track.append(segment);
+    }
+
+    const value = element("span", "value", `${credits(category.score)} / ${credits(category.maxCredits)} · ${category.percent}%`);
+    ui.bars.append(name, track, value);
+  }
+
+  const key = element("div", "key");
+  for (const [kind, label] of [["obtained", "Obtained"], ["missed", "Missed"], ["unsupported", "Not supported yet"]]) {
+    const item = element("span");
+    item.append(element("span", `swatch ${kind}`), label);
+    key.append(item);
+  }
+  ui.bars.append(key);
+}
+
+// --- Questions -------------------------------------------------------------------------
+
+function drawQuestion(question) {
+  const item = element("li", `question${question.assessable ? "" : " unassessable"}`);
+
+  const body = element("div");
+  body.append(element("p", "text", question.text));
+  if (question.explanation) {
+    body.append(element("p", "why", question.explanation));
+  }
+
+  const properties = Object.entries(question.properties ?? {});
+  if (properties.length) {
+    body.append(element("p", "props", properties.map(([name, value]) => `${name}: ${value}`).join("\n")));
+  }
+
+  const credit = element("div", "credit");
+  if (question.assessable) {
+    credit.append(`${credits(question.score)} / ${credits(question.maxCredits)}`);
+    const meter = element("div", "meter");
+    const filled = element("span");
+    filled.style.width = `${question.maxCredits ? (100 * question.score) / question.maxCredits : 0}%`;
+    meter.append(filled);
+    credit.append(meter);
+  } else {
+    credit.append(element("span", "tag", "not supported yet"));
+  }
+
+  item.append(body, credit);
+  return item;
+}
+
+function drawQuestions() {
+  ui.questions.replaceChildren();
+  let missed = 0;
+  let total = 0;
+
+  for (const category of report.categories) {
+    for (const principle of category.principles) {
+      if (scope && scope !== category.name && scope !== principle.id) {
+        continue;
+      }
+
+      const missing = principle.questions.filter((question) => isMissed(question, principle));
+      missed += missing.length;
+      total += principle.questions.length;
+
+      // Missed: the costliest first, so the list reads as a to-do list.
+      const shown = filter === Filter.Missed
+        ? missing.sort((a, b) => (b.maxCredits - b.score) - (a.maxCredits - a.score))
+        : principle.questions;
+      if (!shown.length) {
+        continue;
+      }
+
+      const head = element("li", "principle");
+      head.append(
+        element("span", "chip", principle.id),
+        element("span", "label", principle.label),
+        element("span", "muted", `${credits(principle.score)} / ${credits(principle.maxCredits)}`),
+      );
+      ui.questions.append(head, ...shown.map(drawQuestion));
+    }
+  }
+
+  if (!ui.questions.children.length) {
+    ui.questions.append(element("li", "empty", filter === Filter.Missed ? "No credits missed here." : "No questions here."));
+  }
+
+  ui.showMissed.textContent = `Missed (${missed})`;
+  ui.showAll.textContent = `All questions (${total})`;
+  ui.showMissed.setAttribute("aria-pressed", String(filter === Filter.Missed));
+  ui.showAll.setAttribute("aria-pressed", String(filter === Filter.All));
+
+  ui.scope.hidden = !scope;
+  ui.scopeLabel.textContent = scope ?? "";
+  for (const target of document.querySelectorAll("[data-scope]")) {
+    target.classList.toggle("active", target.dataset.scope === scope);
+  }
+}
+
+/** Narrow the list to a principle or category; the same one again widens it back. */
+function setScope(next) {
+  scope = scope === next ? null : next;
+  drawQuestions();
+  ui.filters.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+function setFilter(next) {
+  filter = next;
+  drawQuestions();
+}
+
+ui.showMissed.addEventListener("click", () => setFilter(Filter.Missed));
+ui.showAll.addEventListener("click", () => setFilter(Filter.All));
+ui.scopeClear.addEventListener("click", () => setScope(scope));
+ui.open.addEventListener("click", async () => {
+  try {
+    await McpApp.openLink(report.portalUrl);
+  } catch (error) {
+    toast(`The host did not open the link: ${error.message}`);
+  }
+});
+ui.expand.addEventListener("click", async () => {
+  const mode = McpApp.context.displayMode === DisplayMode.Fullscreen ? DisplayMode.Inline : DisplayMode.Fullscreen;
+  try {
+    await McpApp.requestDisplayMode(mode);
+  } catch (error) {
+    toast(`The host kept the current size: ${error.message}`);
+  }
+});
+
+// --- Results ---------------------------------------------------------------------------
+
+function render(next) {
+  report = next;
+  filter = Filter.Missed;
+  scope = null;
+
+  ui.ontology.textContent = report.ontology;
+  ui.ontology.hidden = false;
+  ui.name.textContent = report.name || report.ontology;
+  ui.methodology.textContent = `FAIR score · ${report.methodology}`;
+  ui.total.textContent = `${credits(report.score)} / ${credits(report.maxCredits)} · ${report.percent}%`;
+  ui.total.hidden = false;
+  ui.open.hidden = !report.portalUrl;
+
+  ui.status.hidden = true;
+  ui.charts.hidden = false;
+  ui.filters.hidden = false;
+
+  drawRadar();
+  drawBars();
+  drawQuestions();
+}
+
+function showResult(result) {
+  const assessment = result?.structuredContent;
+  if (!result?.isError && assessment?.categories) {
+    render(assessment);
+    return;
+  }
+
+  const text = (result?.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("\n");
+  showStatus(text || "The server returned no assessment.");
+}
+
+McpApp.connect(APP_INFO, { inlineHeight: INLINE_HEIGHT })
+  .catch((error) => showStatus(`Could not connect to the host: ${error.message}`));
+</script>
+</body>
+</html>

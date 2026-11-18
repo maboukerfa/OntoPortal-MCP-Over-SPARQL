@@ -62,7 +62,11 @@ const GRAPH_ONTOLOGY = "SFWO";
 const GRAPH_CLASS = "http://purl.obolibrary.org/obo/ECOCORE_00000010";
 const GRAPH_RELATED = "http://purl.obolibrary.org/obo/ECOCORE_00000011";
 const CLASS_GRAPH_URI = "ui://ontoportal-sparql/class-graph.html";
+const FAIR_SCORE_URI = "ui://ontoportal-sparql/fair-score.html";
 const MCP_APP = "text/html;profile=mcp-app";
+
+/** O'FAIRe is case-sensitive; the tool must not be. */
+const FAIR_ONTOLOGY = "webvoc";
 
 /** A usage event the server wrote to stderr; see src/mcp/usage.ts. */
 type UsageEvent = Record<string, unknown>;
@@ -176,8 +180,8 @@ async function main(): Promise<void> {
   const { tools } = await client.listTools();
   const names = tools.map((tool) => tool.name).sort();
   check(
-    "exposes the five tools",
-    ["get_schema_card", "list_terms", "resolve_ontology", "run_sparql", "show_class_graph"].every((name) =>
+    "exposes the six tools",
+    ["get_schema_card", "list_terms", "resolve_ontology", "run_sparql", "show_class_graph", "show_fair_score"].every((name) =>
       names.includes(name),
     ),
     names.join(", "),
@@ -195,8 +199,8 @@ async function main(): Promise<void> {
 
   const { resources } = await client.listResources();
   check(
-    "exposes the card, the examples and the class graph view",
-    resources.length === 3,
+    "exposes the card, the examples and the two views",
+    resources.length === 4,
     resources.map((resource) => resource.uri).join(", "),
   );
 
@@ -208,12 +212,21 @@ async function main(): Promise<void> {
     JSON.stringify(graphTool?._meta),
   );
 
-  const view = (await client.readResource({ uri: CLASS_GRAPH_URI })).contents[0];
+  const fairTool = tools.find((tool) => tool.name === "show_fair_score");
   check(
-    "the view is an MCP App that opens the handshake",
-    view?.mimeType === MCP_APP && "text" in view && String(view.text).includes("ui/initialize"),
-    String(view?.mimeType),
+    "show_fair_score names its view",
+    (fairTool?._meta?.ui as { resourceUri?: string } | undefined)?.resourceUri === FAIR_SCORE_URI,
   );
+
+  for (const uri of [CLASS_GRAPH_URI, FAIR_SCORE_URI]) {
+    const view = (await client.readResource({ uri })).contents[0];
+    const html = view && "text" in view ? String(view.text) : "";
+    check(
+      `${uri} is one document with the bridge inlined`,
+      view?.mimeType === MCP_APP && html.includes("ui/initialize") && !/(src|href)="mcp-app/.test(html),
+      String(view?.mimeType),
+    );
+  }
 
   const { prompts } = await client.listPrompts();
   check("exposes the query_portal prompt", prompts.some((p) => p.name === "query_portal"));
@@ -400,6 +413,27 @@ async function main(): Promise<void> {
   check(
     "show_class_graph reports an unknown class as an error to fix",
     unknownClass.isError === true && firstText(unknownClass.content).includes("no term"),
+  );
+
+  const scored = await client.callTool({ name: "show_fair_score", arguments: { ontology: FAIR_ONTOLOGY } });
+  const report = scored.structuredContent as
+    | { ontology: string; percent: number; categories: { principles: { questions: unknown[] }[] }[] }
+    | undefined;
+  const questions = report?.categories.flatMap((category) => category.principles.flatMap((p) => p.questions)) ?? [];
+  check(
+    "show_fair_score assesses the exact acronym, every category and question",
+    report?.ontology === FAIR_ONTOLOGY.toUpperCase() && report.categories.length === 4 && questions.length > 0,
+    `${report?.ontology} ${report?.percent}%, ${questions.length} questions`,
+  );
+  check(
+    "show_fair_score tells the model what was missed",
+    scored.isError !== true && firstText(scored.content).includes('"missed"'),
+  );
+
+  const unscored = await client.callTool({ name: "show_fair_score", arguments: { ontology: "NO-SUCH-ONTOLOGY" } });
+  check(
+    "show_fair_score reports an unknown ontology as an error to fix",
+    unscored.isError === true && firstText(unscored.content).includes("resolve_ontology"),
   );
 
   process.stdout.write("\nprompt\n");
